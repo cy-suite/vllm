@@ -9,12 +9,18 @@ from pathlib import Path
 from shutil import which
 from typing import Dict, List
 
-import torch
 from packaging.version import Version, parse
 from setuptools import Extension, find_packages, setup
+from setuptools import build_meta as _orig
+from setuptools.build_meta import *
 from setuptools.command.build_ext import build_ext
+from setuptools.errors import SetupError
 from setuptools_scm import get_version
-from torch.utils.cpp_extension import CUDA_HOME
+
+
+def get_requires_for_build_wheel(config_settings=None):
+    return _orig.get_requires_for_build_wheel(config_settings) + [...]
+
 
 
 def load_module_from_path(module_name, path):
@@ -251,22 +257,21 @@ def _no_device() -> bool:
 
 
 def _is_cuda() -> bool:
-    has_cuda = torch.version.cuda is not None
     return (VLLM_TARGET_DEVICE == "cuda" and has_cuda
             and not (_is_neuron() or _is_tpu()))
 
 
 def _is_hip() -> bool:
-    return (VLLM_TARGET_DEVICE == "cuda"
-            or VLLM_TARGET_DEVICE == "rocm") and torch.version.hip is not None
+    return VLLM_TARGET_DEVICE == "cuda" or VLLM_TARGET_DEVICE == "rocm"
 
 
 def _is_neuron() -> bool:
-    torch_neuronx_installed = True
     try:
         subprocess.run(["neuron-ls"], capture_output=True, check=True)
     except (FileNotFoundError, PermissionError, subprocess.CalledProcessError):
         torch_neuronx_installed = False
+    else:
+        torch_neuronx_installed = True
     return torch_neuronx_installed or VLLM_TARGET_DEVICE == "neuron"
 
 
@@ -340,6 +345,8 @@ def get_nvcc_cuda_version() -> Version:
 
     Adapted from https://github.com/NVIDIA/apex/blob/8b7a1ff183741dd8f9b87e7bafd04cfde99cea28/setup.py
     """
+    from torch.utils.cpp_extension import CUDA_HOME
+
     assert CUDA_HOME is not None, "CUDA_HOME is not set"
     nvcc_output = subprocess.check_output([CUDA_HOME + "/bin/nvcc", "-V"],
                                           universal_newlines=True)
@@ -361,6 +368,11 @@ def get_vllm_version() -> str:
         if envs.VLLM_TARGET_DEVICE == "empty":
             version += "+empty"
     elif _is_cuda():
+        import torch
+
+        if torch.version.cuda is None:
+            raise SetupError("Couldn't get CUDA version")
+
         cuda_version = str(get_nvcc_cuda_version())
         if cuda_version != MAIN_CUDA_VERSION:
             cuda_version_str = cuda_version.replace(".", "")[:3]
@@ -368,6 +380,11 @@ def get_vllm_version() -> str:
             if "sdist" not in sys.argv:
                 version += f"{sep}cu{cuda_version_str}"
     elif _is_hip():
+        import torch
+
+        if torch.version.hip is None:
+            raise SetupError("Couldn't get hip version")
+
         # Get the HIP version
         hipcc_version = get_hipcc_rocm_version()
         if hipcc_version != MAIN_CUDA_VERSION:
@@ -419,6 +436,8 @@ def get_requirements() -> List[str]:
     if _no_device():
         requirements = _read_requirements("requirements-cuda.txt")
     elif _is_cuda():
+        import torch
+
         requirements = _read_requirements("requirements-cuda.txt")
         cuda_major, cuda_minor = torch.version.cuda.split(".")
         modified_requirements = []
