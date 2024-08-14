@@ -60,7 +60,7 @@ FROM base AS build
 COPY requirements-build.txt requirements-build.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install -r requirements-build.txt
+    python3 -m pip install build -r requirements-build.txt
 
 # files and directories related to build wheels
 COPY csrc csrc
@@ -98,7 +98,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         && export SCCACHE_IDLE_TIMEOUT=0 \
         && export CMAKE_BUILD_TYPE=Release \
         && sccache --show-stats \
-        && python3 setup.py bdist_wheel --dist-dir=dist --py-limited-api=cp38 \
+        && python3 -m build --wheel --outdir=dist --no-isolation -v -config-setting py-limited-api=38  \
         && sccache --show-stats; \
     fi
 
@@ -107,7 +107,7 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
     --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=.git,target=.git  \
     if [ "$USE_SCCACHE" != "1" ]; then \
-        python3 setup.py bdist_wheel --dist-dir=dist --py-limited-api=cp38; \
+        python -m build --wheel --outdir=dist --no-isolation --config-setting py-limited-api=38 -v ;\
     fi
 
 # Check the size of the wheel if RUN_WHEEL_CHECK is true
