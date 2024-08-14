@@ -18,11 +18,6 @@ from setuptools.errors import SetupError
 from setuptools_scm import get_version
 
 
-def get_requires_for_build_wheel(config_settings=None):
-    return _orig.get_requires_for_build_wheel(config_settings) + [...]
-
-
-
 def load_module_from_path(module_name, path):
     spec = importlib.util.spec_from_file_location(module_name, path)
     module = importlib.util.module_from_spec(spec)
@@ -257,8 +252,7 @@ def _no_device() -> bool:
 
 
 def _is_cuda() -> bool:
-    return (VLLM_TARGET_DEVICE == "cuda" and has_cuda
-            and not (_is_neuron() or _is_tpu()))
+    return VLLM_TARGET_DEVICE == "cuda" and not (_is_neuron() or _is_tpu())
 
 
 def _is_hip() -> bool:
@@ -316,9 +310,9 @@ def get_hipcc_rocm_version():
     if match:
         # Return the version string
         return match.group(1)
-    else:
-        print("Could not find HIP version in the output")
-        return None
+
+    print("Could not find HIP version in the output")
+    return None
 
 
 def get_neuronxcc_version():

@@ -1,16 +1,8 @@
 [build-system]
-# Should be mirrored in requirements-build.txt
-requires = [
-    "cmake>=3.26",
-    "ninja",
-    "packaging",
-    "setuptools>=61",
-    "setuptools-scm>=8.0",
-    "torch == 2.4.0",
-    "wheel",
-    "jinja2",
-]
-build-backend = "setuptools.build_meta"
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "vllm"
+# per-target build dependencies are defined dynamically in `build_backend/vllm.py`
+backend-path = ["_build_backend"]
 
 [tool.ruff]
 # Allow lines to be as long as 80.
