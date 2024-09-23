@@ -51,15 +51,7 @@ Build from source
     $ sudo apt-get install -y gcc-12 g++-12 libnuma-dev
     $ sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10 --slave /usr/bin/g++ g++ /usr/bin/g++-12
 
-- Second, install Python packages for vLLM CPU backend building:
-
-.. code-block:: console
-
-    $ pip install --upgrade pip
-    $ pip install wheel packaging ninja "setuptools>=49.4.0" numpy
-    $ pip install -v -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
-
-- Third, build and install oneDNN library from source:
+- Second, build and install oneDNN library from source:
 
 .. code-block:: console
 
@@ -77,7 +69,7 @@ Build from source
 
 .. code-block:: console
 
-    $ VLLM_TARGET_DEVICE=cpu python setup.py install
+    $ PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu VLLM_TARGET_DEVICE=cpu pip install -v .
 
 .. note::
     - BF16 is the default data type in the current CPU backend (that means the backend will cast FP16 to BF16), and is compatible will all CPUs with AVX512 ISA support. 

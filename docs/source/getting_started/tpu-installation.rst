@@ -62,18 +62,15 @@ First, install the dependencies:
     $ pip install https://storage.googleapis.com/pytorch-xla-releases/wheels/tpuvm/torch_xla-${TORCH_VERSION}.dev${DATE}-cp310-cp310-linux_x86_64.whl
 
     $ # Install JAX and Pallas.
-    $ pip install torch_xla[tpu] -f https://storage.googleapis.com/libtpu-releases/index.html
-    $ pip install torch_xla[pallas] -f https://storage.googleapis.com/jax-releases/jax_nightly_releases.html -f https://storage.googleapis.com/jax-releases/jaxlib_nightly_releases.html
-
-    $ # Install other build dependencies.
-    $ pip install -r requirements-tpu.txt
+    $ export PIP_FIND_LINKS="https://storage.googleapis.com/libtpu-releases/index.html https://storage.googleapis.com/jax-releases/jax_nightly_releases.html https://storage.googleapis.com/jax-releases/jaxlib_nightly_releases.html"
+    $ pip install torch_xla[tpu,pallas]
 
 
 Next, build vLLM from source. This will only take a few seconds:
 
 .. code-block:: console
 
-    $ VLLM_TARGET_DEVICE="tpu" python setup.py develop
+    $ VLLM_TARGET_DEVICE="tpu" pip install -v -e .
 
 
 .. note::
@@ -98,4 +95,3 @@ Next, build vLLM from source. This will only take a few seconds:
     .. code-block:: console
 
         $ sudo apt-get install libopenblas-base libopenmpi-dev libomp-dev
-

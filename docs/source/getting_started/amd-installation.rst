@@ -103,8 +103,7 @@ Alternatively, wheels intended for vLLM use can be accessed under the releases.
 .. code-block:: console
 
     $ cd vllm
-    $ pip install -U -r requirements-rocm.txt
-    $ python setup.py develop # This may take 5-10 minutes. Currently, `pip install .` does not work for ROCm installation
+    $ VLLM_TARGET_DEVICE=rocm pip install -e -v . # This may take 5-10 minutes.
 
 
 .. tip::

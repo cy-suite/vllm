@@ -5,16 +5,17 @@ import os
 import re
 import subprocess
 import sys
-import warnings
 from pathlib import Path
 from shutil import which
 from typing import Dict, List
 
-import torch
 from packaging.version import Version, parse
 from setuptools import Extension, find_packages, setup
+from setuptools import build_meta as _orig
+from setuptools.build_meta import *
 from setuptools.command.build_ext import build_ext
-from torch.utils.cpp_extension import CUDA_HOME
+from setuptools.errors import SetupError
+from setuptools_scm import get_version
 
 
 def load_module_from_path(module_name, path):
@@ -27,34 +28,6 @@ def load_module_from_path(module_name, path):
 
 ROOT_DIR = os.path.dirname(__file__)
 logger = logging.getLogger(__name__)
-
-
-def embed_commit_hash():
-    try:
-        if "BUILDKITE_COMMIT" in os.environ:
-            # ci build
-            commit_id = os.environ["BUILDKITE_COMMIT"]
-        else:
-            commit_id = subprocess.check_output(["git", "rev-parse", "HEAD"],
-                                                encoding="utf-8").strip()
-
-        commit_contents = f'__commit__ = "{commit_id}"\n'
-
-        version_file = os.path.join(ROOT_DIR, "vllm", "commit_id.py")
-        with open(version_file, "w", encoding="utf-8") as f:
-            f.write(commit_contents)
-
-    except subprocess.CalledProcessError as e:
-        warnings.warn(f"Failed to get commit hash:\n{e}",
-                      RuntimeWarning,
-                      stacklevel=2)
-    except Exception as e:
-        warnings.warn(f"Failed to embed commit hash:\n{e}",
-                      RuntimeWarning,
-                      stacklevel=2)
-
-
-embed_commit_hash()
 
 # cannot import envs directly because it depends on vllm,
 #  which is not installed yet
@@ -279,22 +252,20 @@ def _no_device() -> bool:
 
 
 def _is_cuda() -> bool:
-    has_cuda = torch.version.cuda is not None
-    return (VLLM_TARGET_DEVICE == "cuda" and has_cuda
-            and not (_is_neuron() or _is_tpu()))
+    return VLLM_TARGET_DEVICE == "cuda" and not (_is_neuron() or _is_tpu())
 
 
 def _is_hip() -> bool:
-    return (VLLM_TARGET_DEVICE == "cuda"
-            or VLLM_TARGET_DEVICE == "rocm") and torch.version.hip is not None
+    return VLLM_TARGET_DEVICE == "cuda" or VLLM_TARGET_DEVICE == "rocm"
 
 
 def _is_neuron() -> bool:
-    torch_neuronx_installed = True
     try:
         subprocess.run(["neuron-ls"], capture_output=True, check=True)
     except (FileNotFoundError, PermissionError, subprocess.CalledProcessError):
         torch_neuronx_installed = False
+    else:
+        torch_neuronx_installed = True
     return torch_neuronx_installed or VLLM_TARGET_DEVICE == "neuron"
 
 
@@ -339,9 +310,9 @@ def get_hipcc_rocm_version():
     if match:
         # Return the version string
         return match.group(1)
-    else:
-        print("Could not find HIP version in the output")
-        return None
+
+    print("Could not find HIP version in the output")
+    return None
 
 
 def get_neuronxcc_version():
@@ -359,8 +330,8 @@ def get_neuronxcc_version():
     if match:
         # Return the version string
         return match.group(1)
-    else:
-        raise RuntimeError("Could not find HIP version in the output")
+
+    raise RuntimeError("Could not find HIP version in the output")
 
 
 def get_nvcc_cuda_version() -> Version:
@@ -368,6 +339,8 @@ def get_nvcc_cuda_version() -> Version:
 
     Adapted from https://github.com/NVIDIA/apex/blob/8b7a1ff183741dd8f9b87e7bafd04cfde99cea28/setup.py
     """
+    from torch.utils.cpp_extension import CUDA_HOME
+
     assert CUDA_HOME is not None, "CUDA_HOME is not set"
     nvcc_output = subprocess.check_output([CUDA_HOME + "/bin/nvcc", "-V"],
                                           universal_newlines=True)
@@ -381,52 +354,50 @@ def get_path(*filepath) -> str:
     return os.path.join(ROOT_DIR, *filepath)
 
 
-def find_version(filepath: str) -> str:
-    """Extract version information from the given filepath.
-
-    Adapted from https://github.com/ray-project/ray/blob/0b190ee1160eeca9796bc091e07eaebf4c85b511/python/setup.py
-    """
-    with open(filepath) as fp:
-        version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]",
-                                  fp.read(), re.M)
-        if version_match:
-            return version_match.group(1)
-        raise RuntimeError("Unable to find version string.")
-
-
 def get_vllm_version() -> str:
-    version = find_version(get_path("vllm", "version.py"))
+    version = get_version()
+    sep = "+" if "+" not in version else "."  # dev versions might contain +
 
     if _no_device():
         if envs.VLLM_TARGET_DEVICE == "empty":
             version += "+empty"
     elif _is_cuda():
+        import torch
+
+        if torch.version.cuda is None:
+            raise SetupError("Couldn't get CUDA version")
+
         cuda_version = str(get_nvcc_cuda_version())
         if cuda_version != MAIN_CUDA_VERSION:
             cuda_version_str = cuda_version.replace(".", "")[:3]
             # skip this for source tarball, required for pypi
             if "sdist" not in sys.argv:
-                version += f"+cu{cuda_version_str}"
+                version += f"{sep}cu{cuda_version_str}"
     elif _is_hip():
+        import torch
+
+        if torch.version.hip is None:
+            raise SetupError("Couldn't get hip version")
+
         # Get the HIP version
         hipcc_version = get_hipcc_rocm_version()
         if hipcc_version != MAIN_CUDA_VERSION:
             rocm_version_str = hipcc_version.replace(".", "")[:3]
-            version += f"+rocm{rocm_version_str}"
+            version += f"{sep}rocm{rocm_version_str}"
     elif _is_neuron():
         # Get the Neuron version
         neuron_version = str(get_neuronxcc_version())
         if neuron_version != MAIN_CUDA_VERSION:
             neuron_version_str = neuron_version.replace(".", "")[:3]
-            version += f"+neuron{neuron_version_str}"
+            version += f"{sep}neuron{neuron_version_str}"
     elif _is_openvino():
-        version += "+openvino"
+        version += f"{sep}openvino"
     elif _is_tpu():
-        version += "+tpu"
+        version += f"{sep}tpu"
     elif _is_cpu():
-        version += "+cpu"
+        version += f"{sep}cpu"
     elif _is_xpu():
-        version += "+xpu"
+        version += f"{sep}xpu"
     else:
         raise RuntimeError("Unknown runtime environment")
 
@@ -459,6 +430,8 @@ def get_requirements() -> List[str]:
     if _no_device():
         requirements = _read_requirements("requirements-cuda.txt")
     elif _is_cuda():
+        import torch
+
         requirements = _read_requirements("requirements-cuda.txt")
         cuda_major, cuda_minor = torch.version.cuda.split(".")
         modified_requirements = []
