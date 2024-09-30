@@ -10,6 +10,8 @@ from vllm.utils import is_hip
 logger = init_logger(__name__)
 
 _GENERATION_MODELS = {
+
+    "RwkvForCausalLM": ("Rwkv5ForCausalLM","Rwkv5ForCausalLM"),
     "AquilaModel": ("llama", "LlamaForCausalLM"),
     "AquilaForCausalLM": ("llama", "LlamaForCausalLM"),  # AquilaChat2
     "BaiChuanForCausalLM": ("baichuan", "BaiChuanForCausalLM"),  # baichuan-7b

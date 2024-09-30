@@ -19,6 +19,8 @@ from vllm.logger import init_logger
 # yapf conflicts with isort for this block
 # yapf: disable
 from vllm.transformers_utils.configs import (ChatGLMConfig, DbrxConfig,
+                                             MLPSpeculatorConfig,
+                                             RWKV5Config,
                                              EAGLEConfig, ExaoneConfig,
                                              InternVLChatConfig, JAISConfig,
                                              MedusaConfig, MllamaConfig,
@@ -50,6 +52,7 @@ _CONFIG_REGISTRY: Dict[str, Type[PretrainedConfig]] = {
     "RefinedWebModel": RWConfig,  # For tiiuae/falcon-7b(-instruct)
     "jais": JAISConfig,
     "mlp_speculator": MLPSpeculatorConfig,
+    "rwkv5": RWKV5Config,
     "medusa": MedusaConfig,
     "eagle": EAGLEConfig,
     "exaone": ExaoneConfig,
