@@ -37,15 +37,6 @@ class SiluAndMul(CustomOp):
         ops.silu_and_mul(out, x)
         return out
 
-    def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
-        from vllm._ipex_ops import ipex_ops as ops
-
-        d = x.shape[-1] // 2
-        output_shape = (x.shape[:-1] + (d, ))
-        out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-        ops.silu_and_mul(out, x)
-        return out
-
 
 class GeluAndMul(CustomOp):
     """An activation function for GeGLU.
@@ -80,18 +71,6 @@ class GeluAndMul(CustomOp):
             ops.gelu_tanh_and_mul(out, x)
         return out
 
-    def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
-        from vllm._ipex_ops import ipex_ops as ops
-
-        d = x.shape[-1] // 2
-        output_shape = (x.shape[:-1] + (d, ))
-        out = torch.empty(output_shape, dtype=x.dtype, device=x.device)
-        if self.approximate == "none":
-            ops.gelu_and_mul(out, x)
-        elif self.approximate == "tanh":
-            ops.gelu_tanh_and_mul(out, x)
-        return out
-
     def extra_repr(self) -> str:
         return f'approximate={repr(self.approximate)}'
 
@@ -111,11 +90,6 @@ class NewGELU(CustomOp):
         ops.gelu_new(out, x)
         return out
 
-    def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
-        from vllm._ipex_ops import ipex_ops as ops
-
-        return ops.gelu_new(x)
-
 
 class FastGELU(CustomOp):
 
@@ -130,11 +104,6 @@ class FastGELU(CustomOp):
         out = torch.empty_like(x)
         ops.gelu_fast(out, x)
         return out
-
-    def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
-        from vllm._ipex_ops import ipex_ops as ops
-
-        return ops.gelu_fast(x)
 
 
 class QuickGELU(CustomOp):
@@ -151,16 +120,6 @@ class QuickGELU(CustomOp):
         ops.gelu_quick(out, x)
         return out
 
-    def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
-        from vllm._ipex_ops import ipex_ops as ops
-
-        out = torch.empty_like(x)
-        ops.gelu_quick(out, x)
-        return out
-
-    # TODO implement forward_xpu for QuickGELU
-    # def forward_xpu(self, x: torch.Tensor) -> torch.Tensor:
-
 
 class ReLUSquaredActivation(CustomOp):
     """
@@ -171,11 +130,8 @@ class ReLUSquaredActivation(CustomOp):
         """PyTorch-native implementation equivalent to forward()."""
         return torch.square(F.relu(x))
 
-    def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:
-        return self.forward_native(x)
 
-
-class ScaledActivation(nn.Module):
+class ScaledActivation(CustomOp):
     """An activation function with post-scale parameters.
 
     This is used for some quantization methods like AWQ.
@@ -203,7 +159,7 @@ class ScaledActivation(nn.Module):
             torch.empty(intermediate_size_per_partition, dtype=params_dtype))
         set_weight_attrs(self.scales, {"weight_loader": self.weight_loader})
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward_native(self, x: torch.Tensor) -> torch.Tensor:
         return self.act(x) / self.scales
 
     def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor):

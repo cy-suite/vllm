@@ -171,6 +171,18 @@ class RotaryEmbedding(CustomOp):
                                  self.cos_sin_cache, self.is_neox_style)
         return query, key
 
+    def forward_cpu(
+        self,
+        positions: torch.Tensor,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        offsets: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.is_neox_style:
+            return self.forward_native2(positions, query, key, offsets)
+        else:
+            return self.forward_native(positions, query, key, offsets)
+
     def forward_xpu(
         self,
         positions: torch.Tensor,
@@ -193,6 +205,18 @@ class RotaryEmbedding(CustomOp):
             ops.rotary_embedding(positions, query, key, self.head_size,
                                  self.cos_sin_cache, self.is_neox_style)
         return query, key
+
+    def forward_tpu(
+        self,
+        positions: torch.Tensor,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        offsets: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.is_neox_style:
+            return self.forward_native2(positions, query, key, offsets)
+        else:
+            return self.forward_native(positions, query, key, offsets)
 
     def extra_repr(self) -> str:
         s = f"head_size={self.head_size}, rotary_dim={self.rotary_dim}"
