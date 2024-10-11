@@ -4,26 +4,23 @@ from dataclasses import dataclass
 from typing import Iterable, List, Optional, Tuple
 
 import torch
+from mamba_ssm.ops.triton.ssd_combined import mamba_chunk_scan_combined
 from torch import nn
 from transformers import MambaConfig
 
-from mamba_ssm.ops.triton.ssd_combined import mamba_chunk_scan_combined
-
 from vllm.attention.backends.abstract import AttentionMetadata
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
-from vllm.distributed import (get_tensor_model_parallel_rank,
-                              get_tensor_model_parallel_world_size,
+from vllm.distributed import (get_tensor_model_parallel_world_size,
                               tensor_model_parallel_all_reduce)
 from vllm.model_executor.layers.activation import SiluAndMul
 from vllm.model_executor.layers.layernorm import RMSNorm
-from vllm.model_executor.layers.linear import (ColumnParallelLinear,
-                                               MergedColumnParallelLinear,
+from vllm.model_executor.layers.linear import (MergedColumnParallelLinear,
                                                RowParallelLinear)
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.mamba.ops.causal_conv1d import (
     causal_conv1d_fn, causal_conv1d_update)
 from vllm.model_executor.layers.mamba.ops.mamba_ssm import (
-    selective_scan_fn, selective_state_update)
+    selective_state_update)
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig)
 from vllm.model_executor.layers.sampler import Sampler, SamplerOutput
@@ -36,7 +33,7 @@ from vllm.model_executor.models.interfaces import (HasInnerState,
 from vllm.model_executor.models.mamba_cache import MambaCacheManager
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.model_executor.utils import set_weight_attrs
-from vllm.sequence import IntermediateTensors 
+from vllm.sequence import IntermediateTensors
 from vllm.worker.model_runner import (_BATCH_SIZES_TO_CAPTURE,
                                       _get_graph_batch_size)
 
@@ -57,7 +54,8 @@ class MambaRMSNormGated(torch.nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
         self.tp_size = get_tensor_model_parallel_world_size()
-        set_weight_attrs(self.weight, {"weight_loader": sharded_weight_loader(0)})
+        set_weight_attrs(self.weight,
+                         {"weight_loader": sharded_weight_loader(0)})
 
     def forward(self, x, gate=None):
         input_dtype = x.dtype
