@@ -59,38 +59,27 @@ class MambaRMSNormGated(torch.nn.Module):
         self.tp_size = get_tensor_model_parallel_world_size()
         set_weight_attrs(self.weight, {"weight_loader": sharded_weight_loader(0)})
 
-    def forward(self, hidden_states, gate=None):
-        input_dtype = hidden_states.dtype
-        input_shape = hidden_states.shape
-        hidden_states = hidden_states.to(torch.float32).view(
-            -1, hidden_states.shape[-1])
+    def forward(self, x, gate=None):
+        input_dtype = x.dtype
+        input_shape = x.shape
+        x = x.to(torch.float32).view(-1, x.shape[-1])
 
         if gate is not None:
-            hidden_states = hidden_states * nn.functional.silu(
-                gate.to(torch.float32))
+            x = x * nn.functional.silu(gate.to(torch.float32))
 
         if self.tp_size > 1:
-            # Calculate local sum and squared_sum
-            local_sums = torch.zeros((hidden_states[0], 3), hidden_state.dtype,
-                                     hidden_state.device)
-            local_sums[:, 0] = hidden_states.sum(-1, keep_dim=False)
-            local_sums[:, 1] = hidden_states.pow(2).sum(-1, keep_dim=False)
-
-            # Get global sum and squared sum
-            global_sums = tensor_model_parallel_all_reduce(sum_and_squared_sum)
-
+            # Compute local sum and then reduce to obtain global sum
+            local_sums = x.pow(2).sum(dim=-1, keepdim=True)
+            global_sums = tensor_model_parallel_all_reduce(local_sums)
             # Calculate the variance
-            count = hidden_size.shape(-1)
-            global_mean = global_sums[:, 0] / count
-            variance = (global_sq_sum[:, 1] / count) - global_mean.pow(2)
+            count = self.tp_size * x.shape[-1]
+            variance = (global_sums / count)
 
         else:
-            variance = hidden_states.pow(2).mean(-1, keepdim=True)
+            variance = x.pow(2).mean(-1, keepdim=True)
 
-        hidden_states = hidden_states * torch.rsqrt(variance +
-                                                    self.variance_epsilon)
-
-        return (self.weight * hidden_states.to(input_dtype)).view(input_shape)
+        x = x * torch.rsqrt(variance + self.variance_epsilon)
+        return (self.weight * x.to(input_dtype)).view(input_shape)
 
 
 # Adapted from transformers.models.mamba.modeling_mamba.MambaMixer
