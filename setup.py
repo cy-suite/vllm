@@ -1,5 +1,4 @@
 import importlib.util
-import io
 import logging
 import os
 import re
@@ -354,9 +353,7 @@ def get_path(*filepath) -> str:
 
 
 def get_vllm_version() -> str:
-    version = get_version(
-        write_to="vllm/_version.py",  # TODO: move this to pyproject.toml
-    )
+    version = get_version()
 
     sep = "+" if "+" not in version else "."  # dev versions might contain +
 
@@ -394,15 +391,6 @@ def get_vllm_version() -> str:
         raise RuntimeError("Unknown runtime environment")
 
     return version
-
-
-def read_readme() -> str:
-    """Read the README file if present."""
-    p = get_path("README.md")
-    if os.path.isfile(p):
-        return io.open(get_path("README.md"), "r", encoding="utf-8").read()
-    else:
-        return ""
 
 
 def get_requirements() -> List[str]:
@@ -485,33 +473,8 @@ if _no_device():
 setup(
     name="vllm",
     version=get_vllm_version(),
-    author="vLLM Team",
-    license="Apache 2.0",
-    description=("A high-throughput and memory-efficient inference and "
-                 "serving engine for LLMs"),
-    long_description=read_readme(),
-    long_description_content_type="text/markdown",
-    url="https://github.com/vllm-project/vllm",
-    project_urls={
-        "Homepage": "https://github.com/vllm-project/vllm",
-        "Documentation": "https://vllm.readthedocs.io/en/latest/",
-    },
-    classifiers=[
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-        "License :: OSI Approved :: Apache Software License",
-        "Intended Audience :: Developers",
-        "Intended Audience :: Information Technology",
-        "Intended Audience :: Science/Research",
-        "Topic :: Scientific/Engineering :: Artificial Intelligence",
-        "Topic :: Scientific/Engineering :: Information Analysis",
-    ],
     packages=find_packages(exclude=("benchmarks", "csrc", "docs", "examples",
                                     "tests*")),
-    python_requires=">=3.8",
     install_requires=get_requirements(),
     ext_modules=ext_modules,
     extras_require={
@@ -520,9 +483,4 @@ setup(
     },
     cmdclass={"build_ext": cmake_build_ext} if len(ext_modules) > 0 else {},
     package_data=package_data,
-    entry_points={
-        "console_scripts": [
-            "vllm=vllm.scripts:main",
-        ],
-    },
 )
