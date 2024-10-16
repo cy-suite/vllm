@@ -1,7 +1,6 @@
 # Copyright (c) 2024, Tri Dao, Albert Gu.
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from einops import rearrange

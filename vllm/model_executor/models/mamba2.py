@@ -345,37 +345,6 @@ class MambaMixer(nn.Module):
         return hidden_states
 
 
-class MambaMLP(nn.Module):
-
-    def __init__(
-        self,
-        config: MambaConfig,
-        quant_config: Optional[QuantizationConfig] = None,
-    ) -> None:
-        super().__init__()
-        hidden_size = config.hidden_size
-        intermediate_size = config.intermediate_size
-        hidden_act = config.hidden_act
-        self.gate_up_proj = MergedColumnParallelLinear(
-            hidden_size, [intermediate_size] * 2,
-            bias=False,
-            quant_config=quant_config)
-        self.down_proj = RowParallelLinear(intermediate_size,
-                                           hidden_size,
-                                           bias=False,
-                                           quant_config=quant_config)
-        if hidden_act != "silu":
-            raise ValueError(f"Unsupported activation: {hidden_act}. "
-                             "Only silu is supported for now.")
-        self.act_fn = SiluAndMul()
-
-    def forward(self, x):
-        gate_up, _ = self.gate_up_proj(x)
-        x = self.act_fn(gate_up)
-        x, _ = self.down_proj(x)
-        return x
-
-
 class MambaDecoderLayer(nn.Module):
 
     def __init__(self,
@@ -388,7 +357,6 @@ class MambaDecoderLayer(nn.Module):
         self.config = config
         self.mixer = MambaMixer(config, layer_idx)
 
-        self.feed_forward = MambaMLP(config, quant_config=quant_config)
         self.norm = RMSNorm(config.hidden_size, eps=config.layer_norm_epsilon)
         self.pre_ff_layernorm = RMSNorm(config.hidden_size,
                                         eps=config.layer_norm_epsilon)
@@ -410,10 +378,6 @@ class MambaDecoderLayer(nn.Module):
 
         hidden_states = self.mixer(hidden_states, attn_metadata, conv_state,
                                    ssm_state)
-        # Fully Connected
-        hidden_states, residual = self.pre_ff_layernorm(
-            hidden_states, residual)
-        hidden_states = self.feed_forward(hidden_states)
         return hidden_states, residual
 
 
@@ -482,26 +446,6 @@ class MambaModel(nn.Module):
 
 
 class Mamba2ForCausalLM(nn.Module, HasInnerState, IsAttentionFree):
-    packed_modules_mapping = {
-        "qkv_proj": [
-            "q_proj",
-            "k_proj",
-            "v_proj",
-        ],
-    }
-
-    # LoRA specific attributes
-    supported_lora_modules = [
-        "qkv_proj",
-        "o_proj",
-        "embed_tokens",
-        "lm_head",
-    ]
-    embedding_modules = {
-        "embeddings": "input_embeddings",
-        "lm_head": "output_embeddings",
-    }
-    embedding_padding_modules = ["lm_head"]
 
     def __init__(
         self,
@@ -601,43 +545,16 @@ class Mamba2ForCausalLM(nn.Module, HasInnerState, IsAttentionFree):
         return next_tokens
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
-        stacked_params_mapping = [
-            # (param_name, shard_name, shard_id)
-            ("qkv_proj", "q_proj", "q"),
-            ("qkv_proj", "k_proj", "k"),
-            ("qkv_proj", "v_proj", "v"),
-            ("gate_up_proj", "gate_proj", 0),
-            ("gate_up_proj", "up_proj", 1),
-        ]
-
         params_dict = dict(self.named_parameters())
         for name, loaded_weight in weights:
-            if "rotary_emb.inv_freq" in name:
-                continue
-
             if "A_log" in name:
                 name = name.replace("A_log", "A")
 
-            if ".self_attn." in name:
-                name = name.replace(".self_attn", "")
+            # Skip loading extra bias for GPTQ models.
+            if name.endswith(".bias") and name not in params_dict:
+                continue
 
-            for param_name, weight_name, shard_id in stacked_params_mapping:
-                if weight_name not in name:
-                    continue
-                name = name.replace(weight_name, param_name)
-                # Skip loading extra bias for GPTQ models.
-                if name.endswith(".bias") and name not in params_dict:
-                    continue
-                param = params_dict[name]
-                weight_loader = param.weight_loader
-                weight_loader(param, loaded_weight, shard_id)
-                break
-            else:
-                # Skip loading extra bias for GPTQ models.
-                if name.endswith(".bias") and name not in params_dict:
-                    continue
-
-                param = params_dict[name]
-                weight_loader = getattr(param, "weight_loader",
-                                        default_weight_loader)
-                weight_loader(param, loaded_weight)
+            param = params_dict[name]
+            weight_loader = getattr(param, "weight_loader",
+                                    default_weight_loader)
+            weight_loader(param, loaded_weight)
