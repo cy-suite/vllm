@@ -1,22 +1,24 @@
 import os
 from dataclasses import dataclass
 from importlib.util import find_spec
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import torch
 from torch import nn
 from transformers_neuronx.config import GenerationConfig
 
-from vllm.config import (DeviceConfig, ModelConfig, ParallelConfig,
-                         SchedulerConfig)
+from vllm.attention import get_attn_backend
+from vllm.config import (CacheConfig, DeviceConfig, ModelConfig,
+                         ParallelConfig, SchedulerConfig)
 from vllm.logger import init_logger
 from vllm.model_executor import SamplingMetadata
 from vllm.model_executor.layers.sampler import SamplerOutput
 from vllm.model_executor.model_loader.neuron import get_neuron_model
-from vllm.multimodal import (MULTIMODAL_REGISTRY, BatchedTensorInputs,
-                             MultiModalInputs)
+from vllm.multimodal import MULTIMODAL_REGISTRY, BatchedTensorInputs
 from vllm.sequence import IntermediateTensors, SequenceGroupMetadata
 from vllm.utils import is_pin_memory_available, make_tensor_with_pad
+from vllm.worker.model_runner_base import (
+    _init_attn_metadata_from_tensor_dict)  # yapf: disable
 from vllm.worker.model_runner_base import ModelRunnerBase, ModelRunnerInputBase
 
 if TYPE_CHECKING:
@@ -36,9 +38,13 @@ class ModelInputForNeuron(ModelRunnerInputBase):
     sampling_metadata: Optional["SamplingMetadata"] = None
     multi_modal_kwargs: Optional[BatchedTensorInputs] = None
 
-    def as_broadcastable_tensor_dict(
-            self) -> Dict[str, Union[int, torch.Tensor]]:
-        raise NotImplementedError("ModelInputForNeuron cannot be broadcast.")
+    def as_broadcastable_tensor_dict(self) -> Dict[str, Any]:
+        tensor_dict = {
+            "input_tokens": self.input_tokens,
+            "input_positions": self.input_positions,
+            "input_block_ids": self.input_block_ids,
+        }
+        return tensor_dict
 
     @classmethod
     def from_broadcasted_tensor_dict(
@@ -46,7 +52,9 @@ class ModelInputForNeuron(ModelRunnerInputBase):
         tensor_dict: Dict[str, Any],
         attn_backend: Optional["AttentionBackend"] = None,
     ) -> "ModelInputForNeuron":
-        assert attn_backend is None
+        if attn_backend is not None:
+            tensor_dict = _init_attn_metadata_from_tensor_dict(
+                attn_backend, tensor_dict)
         return cls.from_broadcasted_tensor_dict(tensor_dict)
 
 
@@ -59,13 +67,16 @@ class NeuronModelRunner(ModelRunnerBase[ModelInputForNeuron]):
         self,
         model_config: ModelConfig,
         parallel_config: ParallelConfig,
+        cache_config: CacheConfig,
         scheduler_config: SchedulerConfig,
         device_config: DeviceConfig,
     ):
         self.model_config = model_config
         self.parallel_config = parallel_config
         self.scheduler_config = scheduler_config
+        self.cache_config = cache_config
 
+        self.sliding_window = None
         if model_config is not None and model_config.get_sliding_window():
             logger.warning("Sliding window is not supported on Neuron. "
                            "The model will run without sliding window.")
@@ -74,12 +85,27 @@ class NeuronModelRunner(ModelRunnerBase[ModelInputForNeuron]):
         self.device = self.device_config.device
         self.pin_memory = is_pin_memory_available()
 
+        self.kv_cache_dtype = "bfloat16"
+
+        num_attn_heads = self.model_config.get_num_attention_heads(
+            self.parallel_config)
+        self.attn_backend = get_attn_backend(
+            num_attn_heads,
+            self.model_config.get_head_size(),
+            self.model_config.get_num_kv_heads(self.parallel_config),
+            self.model_config.get_sliding_window(),
+            self.model_config.dtype if model_config is not None else None,
+            kv_cache_dtype=self.kv_cache_dtype,
+            block_size=cache_config.block_size,
+        )
+
         # Multi-modal data support
         self.multi_modal_input_mapper = MULTIMODAL_REGISTRY \
             .create_input_mapper(self.model_config)
 
         # Lazy initialization.
         self.model: nn.Module  # initialize after load_model.
+        self.block_size: int  # Set after initial profiling.
 
         # Once NEURON_ON_DEVICE_SAMPLING_DISABLED is set to a non-zero value,
         # turn off on-device sampling.
@@ -119,115 +145,194 @@ class NeuronModelRunner(ModelRunnerBase[ModelInputForNeuron]):
             raise NotImplementedError(
                 "Supports only Transformer-NeuronX based models.")
 
+    def compile_model(self) -> None:
+        self.model.model.to_neuron()
+
+    def set_block_size(self, block_size: int) -> None:
+        self.block_size = block_size
+
     def _prepare_prompt(
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int],
-               BatchedTensorInputs]:
-        assert len(seq_group_metadata_list) > 0
-        input_tokens: List[List[int]] = []
-        input_positions: List[List[int]] = []
-        input_block_ids: List[int] = []
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int]]:
+        input_tokens: List[int] = []
+        input_positions: List[int] = []
+        slot_mapping: List[int] = []
 
-        seq_lens: List[int] = []
-        multi_modal_inputs_list: List[MultiModalInputs] = []
+        prompt_lens: List[int] = []
+        context_lens: List[int] = []
+        prefix_block_tables: List[List[int]] = []
+
         for seq_group_metadata in seq_group_metadata_list:
             assert seq_group_metadata.is_prompt
             seq_ids = list(seq_group_metadata.seq_data.keys())
             assert len(seq_ids) == 1
             seq_id = seq_ids[0]
 
+            computed_block_nums = seq_group_metadata.computed_block_nums
+            if (self.scheduler_config is not None
+                    and self.scheduler_config.chunked_prefill_enabled
+                    and not (computed_block_nums is None
+                             or computed_block_nums == [])):
+                raise RuntimeError(
+                    "chunked prefill cannot be used with prefix caching "
+                    "now.")
+
+            token_chunk_size = seq_group_metadata.token_chunk_size
             seq_data = seq_group_metadata.seq_data[seq_id]
-            prompt_tokens = seq_data.get_token_ids()
-            seq_len = len(prompt_tokens)
-            seq_lens.append(seq_len)
 
-            input_tokens.append(prompt_tokens)
-            input_positions.append(list(range(seq_len)))
+            computed_len = seq_data.get_num_computed_tokens()
+            # We should use get_len here because in case of preemption
+            # it contains output tokens.
+            prefill_end = min(seq_data.get_len(),
+                              computed_len + token_chunk_size)
+            prompt_tokens = seq_data.get_token_ids()[computed_len:prefill_end]
+            prompt_len = prefill_end
+            prompt_lens.append(prompt_len)
 
-            assert seq_group_metadata.block_tables is not None
+            prefix_block_tables.append([])
+            # Right now, prefill start is always 0. However, this
+            # assumption can be changed once chunked prefill is introduced.
+            assert computed_len == 0
+
+            # actual prompt lens
+            context_lens.append(computed_len)
+
+            input_tokens.extend(prompt_tokens)
+            # NOTE(woosuk): Here we assume that the first token in the prompt
+            # is always the first token in the sequence.
+            input_positions.extend(list(range(computed_len, prefill_end)))
+
+            # Compute the slot mapping.
             block_table = seq_group_metadata.block_tables[seq_id]
-            assert len(block_table) == 1
-            input_block_ids.append(block_table[0])
 
-            mm_data = seq_group_metadata.multi_modal_data
-            if mm_data:
-                # Process multi-modal data
-                mm_kwargs = self.multi_modal_input_mapper(
-                    mm_data,
-                    mm_processor_kwargs=seq_group_metadata.mm_processor_kwargs,
-                )
-                multi_modal_inputs_list.append(mm_kwargs)
+            for i in range(computed_len, prefill_end):
+                block_number = block_table[i // self.block_size]
+                block_offset = i % self.block_size
+                slot = block_number * self.block_size + block_offset
+                slot_mapping.append(slot)
 
-        max_seq_len = max(seq_lens)
-        assert max_seq_len > 0
-        input_tokens = make_tensor_with_pad(input_tokens,
-                                            pad=0,
-                                            max_len=max_seq_len,
-                                            dtype=torch.long,
-                                            device=self.device)
-        input_positions = make_tensor_with_pad(input_positions,
-                                               pad=0,
-                                               max_len=max_seq_len,
-                                               dtype=torch.long,
-                                               device=self.device)
-        input_block_ids = torch.tensor(input_block_ids,
-                                       dtype=torch.long,
-                                       device=self.device)
+        prompt_lens_tensor = torch.tensor(prompt_lens,
+                                          dtype=torch.long,
+                                          device=self.device)
+        seq_start_loc = torch.zeros(prompt_lens_tensor.shape[0] + 1,
+                                    dtype=torch.int32,
+                                    device=self.device)
+        slot_mapping = torch.tensor(slot_mapping,
+                                    dtype=torch.long,
+                                    device=self.device)
 
-        multi_modal_kwargs = MultiModalInputs.batch(multi_modal_inputs_list)
+        torch.cumsum(prompt_lens_tensor,
+                     dim=0,
+                     dtype=seq_start_loc.dtype,
+                     out=seq_start_loc[1:])
 
-        return (input_tokens, input_positions, input_block_ids, seq_lens,
-                multi_modal_kwargs)
+        attn_metadata = self.attn_backend.make_metadata(
+            is_prompt=True,
+            slot_mapping=slot_mapping,
+            seq_lens=prompt_lens,
+            seq_lens_tensor=torch.tensor([]),
+            prompt_lens_tensor=prompt_lens_tensor,
+            max_decode_seq_len=0,
+            num_prefills=len(prompt_lens),
+            num_prefill_tokens=sum(prompt_lens),
+            num_decode_tokens=0,
+            context_lens=None,
+            block_tables=torch.tensor([]),
+        )
+        input_tokens_tensor = torch.tensor(input_tokens,
+                                           dtype=torch.long,
+                                           device=self.device).unsqueeze(0)
+        input_positions_tensor = torch.tensor(input_positions,
+                                              dtype=torch.long,
+                                              device=self.device).unsqueeze(0)
+        return (input_tokens_tensor, input_positions_tensor, attn_metadata,
+                prompt_lens)
 
     def _prepare_decode(
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert len(seq_group_metadata_list) > 0
-        input_tokens: List[List[int]] = []
-        input_positions: List[List[int]] = []
-        input_block_ids: List[int] = []
+        input_tokens: List[int] = []
+        input_positions: List[int] = []
+        slot_mapping: List[int] = []
         context_lens: List[int] = []
+        block_tables: List[List[int]] = []
 
         for seq_group_metadata in seq_group_metadata_list:
             assert not seq_group_metadata.is_prompt
+            assert seq_group_metadata.token_chunk_size == 1
 
             seq_ids = list(seq_group_metadata.seq_data.keys())
 
             for seq_id in seq_ids:
                 seq_data = seq_group_metadata.seq_data[seq_id]
                 generation_token = seq_data.get_last_token_id()
-                input_tokens.append([generation_token])
+                input_tokens.append(generation_token)
 
                 seq_len = seq_data.get_len()
                 position = seq_len - 1
-                input_positions.append([position])
-                context_lens.append(seq_len)
+                input_positions.append(position)
 
-                assert seq_group_metadata.block_tables is not None
+                context_len = seq_len if self.sliding_window is None else min(
+                    seq_len, self.sliding_window)
+                context_lens.append(context_len)
+
                 block_table = seq_group_metadata.block_tables[seq_id]
-                assert len(block_table) == 1
-                input_block_ids.append(block_table[0])
+                block_number = block_table[position // self.block_size]
+                block_offset = position % self.block_size
+                slot = block_number * self.block_size + block_offset
+                slot_mapping.append(slot)
 
-        input_tokens = make_tensor_with_pad(input_tokens,
-                                            pad=0,
-                                            max_len=1,
-                                            dtype=torch.long,
-                                            device=self.device)
-        input_positions = make_tensor_with_pad(input_positions,
-                                               pad=0,
-                                               max_len=1,
-                                               dtype=torch.long,
-                                               device=self.device)
+                if self.sliding_window is not None:
+                    sliding_window_blocks = (self.sliding_window //
+                                             self.block_size)
+                    block_table = block_table[-sliding_window_blocks:]
+                block_tables.append(block_table)
+
+        input_tokens = torch.tensor(input_tokens,
+                                    dtype=torch.long,
+                                    device=self.device).unsqueeze(-1)
+        input_positions = torch.tensor(input_positions,
+                                       dtype=torch.long,
+                                       device=self.device).unsqueeze(-1)
+        slot_mapping = torch.tensor(slot_mapping,
+                                    dtype=torch.long,
+                                    device=self.device)
         context_lens = torch.tensor(context_lens,
                                     dtype=torch.int,
                                     device=self.device)
-        input_block_ids = torch.tensor(input_block_ids,
-                                       dtype=torch.long,
-                                       device=self.device)
 
-        return input_tokens, input_positions, input_block_ids
+        max_block_table_len = max(
+            len(block_table) for block_table in block_tables)
+        block_tables = make_tensor_with_pad(
+            block_tables,
+            max_len=max_block_table_len,
+            pad=0,
+            dtype=torch.int,
+            device=self.device,
+        )
+
+        attn_metadata = self.attn_backend.make_metadata(
+            is_prompt=False,
+            slot_mapping=slot_mapping,
+            seq_lens=None,
+            seq_lens_tensor=torch.tensor([]),
+            prompt_lens_tensor=None,
+            max_decode_seq_len=0,
+            num_prefill_tokens=0,
+            num_decode_tokens=len(input_tokens),
+            num_prefills=0,
+            context_lens=context_lens,
+            block_tables=block_tables,
+            # kv_cache_dtype="auto",
+        )
+        return (
+            input_tokens,
+            input_positions,
+            attn_metadata,
+        )
 
     def make_model_input_from_broadcasted_tensor_dict(
             self, tensor_dict: Dict[str, Any]) -> ModelInputForNeuron:
@@ -245,9 +350,12 @@ class NeuronModelRunner(ModelRunnerBase[ModelInputForNeuron]):
         is_prompt = seq_group_metadata_list[0].is_prompt
         # Prepare input tensors.
         if is_prompt:
-            (input_tokens, input_positions, input_block_ids, seq_lens,
-             multi_modal_kwargs
-             ) = self._prepare_prompt(seq_group_metadata_list)
+            (
+                input_tokens,
+                input_positions,
+                input_block_ids,
+                seq_lens,
+            ) = self._prepare_prompt(seq_group_metadata_list)
         else:
             (input_tokens, input_positions,
              input_block_ids) = self._prepare_decode(seq_group_metadata_list)
@@ -321,9 +429,7 @@ class NeuronModelRunner(ModelRunnerBase[ModelInputForNeuron]):
         hidden_states = self.model(
             input_ids=model_input.input_tokens,
             positions=model_input.input_positions,
-            input_block_ids=model_input.input_block_ids,
-            **MultiModalInputs.as_kwargs(model_input.multi_modal_kwargs or {},
-                                         device=self.device),
+            input_metadata=model_input.input_block_ids,
         )
 
         # Compute the logits only if the on-device sampling is turned off as

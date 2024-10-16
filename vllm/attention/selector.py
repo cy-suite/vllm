@@ -10,7 +10,8 @@ import vllm.envs as envs
 from vllm.attention.backends.abstract import AttentionBackend
 from vllm.logger import init_logger
 from vllm.platforms import current_platform
-from vllm.utils import STR_BACKEND_ENV_VAR, is_cpu, is_hip, is_openvino, is_xpu
+from vllm.utils import (STR_BACKEND_ENV_VAR, is_cpu, is_hip, is_neuron,
+                        is_openvino, is_xpu)
 
 logger = init_logger(__name__)
 
@@ -19,6 +20,7 @@ class _Backend(enum.Enum):
     FLASH_ATTN = enum.auto()
     XFORMERS = enum.auto()
     ROCM_FLASH = enum.auto()
+    TRANSFORMERS_NEURONX = enum.auto()
     TORCH_SDPA = enum.auto()
     OPENVINO = enum.auto()
     FLASHINFER = enum.auto()
@@ -121,6 +123,11 @@ def get_attn_backend(
         from vllm.attention.backends.rocm_flash_attn import (  # noqa: F401
             ROCmFlashAttentionBackend)
         return ROCmFlashAttentionBackend
+    elif backend == _Backend.TRANSFORMERS_NEURONX:
+        logger.info("Using TransformersNeuronx backend.")
+        from vllm.attention.backends.transformers_neuronx import (  # noqa: F401
+            NeuronAttentionBackend)
+        return NeuronAttentionBackend
     elif backend == _Backend.TORCH_SDPA:
         assert is_cpu(), RuntimeError(
             "Torch SDPA backend is only used for the CPU device.")
@@ -204,6 +211,9 @@ def which_attn_to_use(
         if selected_backend != _Backend.PALLAS:
             logger.info("Cannot use %s backend on TPU.", selected_backend)
         return _Backend.PALLAS
+
+    if is_neuron():
+        return _Backend.TRANSFORMERS_NEURONX
 
     if is_hip():
         # AMD GPUs.
