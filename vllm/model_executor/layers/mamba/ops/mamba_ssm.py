@@ -6,10 +6,11 @@ from typing import Tuple
 import torch
 import triton
 import triton.language as tl
-from packaging import version
 
 from vllm import _custom_ops as ops
+
 from .softplus import softplus
+
 
 @triton.heuristics(
     {"HAS_DT_BIAS": lambda args: args["dt_bias_ptr"] is not None})

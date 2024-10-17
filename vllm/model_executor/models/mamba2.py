@@ -11,7 +11,6 @@ from vllm.attention.backends.abstract import AttentionMetadata
 from vllm.config import CacheConfig, LoRAConfig, SchedulerConfig
 from vllm.distributed import (get_tensor_model_parallel_world_size,
                               tensor_model_parallel_all_reduce)
-from vllm.model_executor.layers.activation import SiluAndMul
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import (MergedColumnParallelLinear,
                                                RowParallelLinear)
@@ -103,11 +102,12 @@ class MambaMixer(nn.Module):
         self.hidden_size = config.hidden_size
         self.ssm_state_size = config.state_size
         self.conv_kernel_size = config.conv_kernel
-        self.intermediate_size = config.intermediate_size
+        self.intermediate_size = getattr(config, "intermediate_size",
+                                         2 * self.hidden_size)
         self.time_step_rank = int(config.time_step_rank)
         self.use_conv_bias = config.use_conv_bias
 
-        self.norm_before_gate = config.norm_before_gate
+        self.norm_before_gate = getattr(config, "norm_before_gate", False)
         self.layer_norm_epsilon = config.layer_norm_epsilon
 
         self.n_groups = config.n_groups
@@ -510,7 +510,9 @@ class Mamba2ForCausalLM(nn.Module, HasInnerState, IsAttentionFree):
     def _get_mamba_cache_shape(
             self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         world_size = get_tensor_model_parallel_world_size()
-        conv_dim = (self.config.intermediate_size +
+        intermediate_size = getattr(self.config, "intermediate_size",
+                                    2 * self.config.hidden_size)
+        conv_dim = (intermediate_size +
                     2 * self.config.n_groups * self.config.state_size)
         conv_state_shape = (
             conv_dim // world_size,
