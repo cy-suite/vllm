@@ -103,12 +103,9 @@ class MambaMixer(nn.Module):
         self.ssm_state_size = config.state_size
         self.conv_kernel_size = config.conv_kernel
         self.intermediate_size = getattr(config, "intermediate_size",
-                                         2 * self.hidden_size)
+                                         config.expand * self.hidden_size)
         self.time_step_rank = int(config.time_step_rank)
         self.use_conv_bias = config.use_conv_bias
-
-        self.norm_before_gate = getattr(config, "norm_before_gate", False)
-        self.layer_norm_epsilon = config.layer_norm_epsilon
 
         self.n_groups = config.n_groups
         self.head_dim = config.head_dim
@@ -148,7 +145,7 @@ class MambaMixer(nn.Module):
         self.A = nn.Parameter(torch.ones(self.num_heads // self.tp_size))
         self.D = nn.Parameter(torch.ones(self.num_heads // self.tp_size))
         self.norm = MambaRMSNormGated(self.intermediate_size // self.tp_size,
-                                      eps=self.layer_norm_epsilon)
+                                      eps=config.layer_norm_epsilon)
 
         set_weight_attrs(self.D, {"weight_loader": sharded_weight_loader(0)})
         a_weight_loader = composed_weight_loader(
@@ -475,6 +472,8 @@ class Mamba2ForCausalLM(nn.Module, HasInnerState, IsAttentionFree):
             # compatibility
             if not lora_config else lora_config.lora_vocab_padding_size,
         )
+        if config.tie_word_embeddings:
+            self.lm_head = self.lm_head.tie_weights(self.backbone.embeddings)
 
         # Used to track and store by the Mamba cache between steps.
         self.mamba_cache: Optional[MambaCacheManager] = None
