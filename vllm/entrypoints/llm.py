@@ -5,6 +5,7 @@ from typing import (Any, ClassVar, Dict, List, Optional, Sequence, Tuple,
                     Union, cast, overload)
 
 from tqdm import tqdm
+from typing import Callable
 
 from vllm import envs
 from vllm.beam_search import (BeamSearchInstance, BeamSearchOutput,
@@ -221,6 +222,7 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[int]] = None,
         use_tqdm: bool = True,
+        state_callback: Optional[Callable[[str], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -233,6 +235,7 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[List[int]]] = None,
         use_tqdm: bool = True,
+        state_callback: Optional[Callable[[str], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -246,6 +249,7 @@ class LLM:
         *,
         prompt_token_ids: List[int],
         use_tqdm: bool = True,
+        state_callback: Optional[Callable[[str], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -259,6 +263,7 @@ class LLM:
         *,
         prompt_token_ids: List[List[int]],
         use_tqdm: bool = True,
+        state_callback: Optional[Callable[[str], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -270,6 +275,7 @@ class LLM:
         sampling_params: None,
         prompt_token_ids: Union[List[int], List[List[int]]],
         use_tqdm: bool = True,
+        state_callback: Optional[Callable[[str], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -283,6 +289,7 @@ class LLM:
         sampling_params: Optional[Union[SamplingParams,
                                         Sequence[SamplingParams]]] = None,
         use_tqdm: bool = True,
+        state_callback: Optional[Callable[[str], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -300,6 +307,7 @@ class LLM:
                                         Sequence[SamplingParams]]] = None,
         prompt_token_ids: Optional[Union[List[int], List[List[int]]]] = None,
         use_tqdm: bool = True,
+        state_callback: Optional[Callable[[str], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         guided_options_request: Optional[Union[LLMGuidedOptions,
@@ -322,6 +330,8 @@ class LLM:
                 When it is a list, the list must have the same length as the
                 prompts and it is paired one by one with the prompt.
             use_tqdm: Whether to use tqdm to display the progress bar.
+            state_callback: A callback function that will be called with the
+                current state of the generation.
             lora_request: LoRA request to use for generation, if any.
             prompt_adapter_request: Prompt Adapter request to use for
                 generation, if any.
@@ -382,7 +392,7 @@ class LLM:
             guided_options=guided_options_request,
             priority=priority)
 
-        outputs = self._run_engine(use_tqdm=use_tqdm)
+        outputs = self._run_engine(use_tqdm=use_tqdm, state_callback=state_callback)
         return LLMEngine.validate_outputs(outputs, RequestOutput)
 
     def beam_search(
@@ -899,7 +909,7 @@ class LLM:
         return params
 
     def _run_engine(
-            self, *, use_tqdm: bool
+            self, *, use_tqdm: bool, state_callback: Optional[Callable[[str], None]] = None
     ) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:
         # Initialize tqdm.
         if use_tqdm:
@@ -921,7 +931,7 @@ class LLM:
             for output in step_outputs:
                 if output.finished:
                     outputs.append(output)
-                    if use_tqdm:
+                    if use_tqdm or state_callback:
                         if isinstance(output, RequestOutput):
                             # Calculate tokens only for RequestOutput
                             assert output.prompt_token_ids is not None
@@ -931,10 +941,21 @@ class LLM:
                                 len(stp.token_ids) for stp in output.outputs)
                             out_spd = (total_out_toks /
                                        pbar.format_dict["elapsed"])
-                            pbar.postfix = (
-                                f"est. speed input: {in_spd:.2f} toks/s, "
-                                f"output: {out_spd:.2f} toks/s")
-                        pbar.update(1)
+                            if use_tqdm:
+                                pbar.postfix = (
+                                    f"est. speed input: {in_spd:.2f} toks/s, "
+                                    f"output: {out_spd:.2f} toks/s")
+                                pbar.update(1)
+                            if state_callback:
+                                payload = {
+                                    "output": output,
+                                    "outputs_completed": len(outputs),
+                                    "total_input_tokens": total_in_toks,
+                                    "total_output_tokens": total_out_toks,
+                                    "input_speed": in_spd,
+                                    "output_speed": out_spd,
+                                }
+                                state_callback(payload)
 
         if use_tqdm:
             pbar.close()
