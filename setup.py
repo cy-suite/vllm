@@ -374,6 +374,8 @@ def get_vllm_version() -> str:
             # skip this for source tarball, required for pypi
             if "sdist" not in sys.argv:
                 version += f"{sep}cu{cuda_version_str}"
+        if envs.VLLM_USE_PRECOMPILED:
+            version += ".precompiled"
     elif _is_hip():
         # Get the HIP version
         hipcc_version = get_hipcc_rocm_version()
@@ -458,6 +460,55 @@ def get_requirements() -> List[str]:
     return requirements
 
 
+def repackage_wheel(package_data: Dict[str, List[str]],
+                    wheel_location) -> None:
+    """Extracts libraries and other files from an existing wheel."""
+    assert _is_cuda(), "VLLM_USE_PRECOMPILED is only supported for CUDA builds"
+
+    import zipfile
+
+    if os.path.exists(wheel_filename := os.path.basename(wheel_location)):
+        print(f"Using existing wheel={wheel_filename}")
+    else:
+        try:
+            subprocess.check_call(
+                f"pip download --no-deps {wheel_location}".split(" "))
+        except subprocess.CalledProcessError:
+            # pip will not be available in PEP-517 style builds with
+            # build isolation, such as when running
+            #    `pip install <path|git+https://<url>`.
+            from urllib.request import urlretrieve
+
+            print("Failed to download using pip, retrying using urlretrieve.")
+            try:
+                urlretrieve(wheel_location, filename=wheel_filename)
+            except Exception as e:
+                from setuptools.errors import SetupError
+
+                raise SetupError(
+                    f"Failed to get vLLM wheel from {wheel_location}") from e
+
+    with zipfile.ZipFile(wheel_filename) as wheel:
+        for lib in filter(
+                lambda file: file.filename.endswith(".so") or file.filename.
+                startswith("vllm/vllm_flash_attn"), wheel.filelist):
+            print(
+                "Extracting and including {lib.filename} from existing wheel")
+            package_name = os.path.dirname(lib.filename).replace("/", ".")
+            file_name = os.path.basename(lib.filename)
+
+            if package_name not in package_data:
+                package_data[package_name] = []
+
+            wheel.extract(lib)
+            if file_name.endswith(".py"):
+                # python files shouldn't be added to package_data
+                continue
+
+            package_data[package_name].append(file_name)
+
+
+
 ext_modules = []
 
 if _is_cuda() or _is_hip():
@@ -479,6 +530,10 @@ package_data = {
 if envs.VLLM_USE_PRECOMPILED:
     ext_modules = []
     package_data["vllm"].append("*.so")
+    wheel_location = os.getenv(
+        "VLLM_PRECOMPILED_WHEEL_LOCATION",
+        "https://vllm-wheels.s3.us-west-2.amazonaws.com/nightly/vllm-1.0.0.dev-cp38-abi3-manylinux1_x86_64.whl"
+    )
 
 if _no_device():
     ext_modules = []
