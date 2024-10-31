@@ -1,7 +1,7 @@
 import itertools
 import warnings
 from contextlib import contextmanager
-from typing import (Any, ClassVar, Callable, Dict, List, Optional, 
+from typing import (Any, Callable, ClassVar, Dict, List, Optional, 
                     Sequence, Tuple, Union, cast, overload)
 
 from tqdm import tqdm
