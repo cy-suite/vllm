@@ -910,7 +910,10 @@ class LLM:
         return params
 
     def _run_engine(
-            self, *, use_tqdm: bool, state_callback: Optional[Callable[[str], None]] = None
+            self, 
+            *, 
+            use_tqdm: bool, 
+            state_callback: Optional[Callable[[str], None]] = None
     ) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:
         # Initialize tqdm.
         if use_tqdm:
@@ -932,7 +935,8 @@ class LLM:
             for output in step_outputs:
                 if output.finished:
                     outputs.append(output)
-                    if (use_tqdm or state_callback) and isinstance(output, RequestOutput):
+                    if ((use_tqdm or state_callback)
+                        and isinstance(output, RequestOutput)):
                         # Calculate tokens only for RequestOutput
                         assert output.prompt_token_ids is not None
                         total_in_toks += len(output.prompt_token_ids)
