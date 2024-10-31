@@ -221,7 +221,7 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[int]] = None,
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[str], None]] = None,
+        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -234,7 +234,7 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[List[int]]] = None,
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[str], None]] = None,
+        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -248,7 +248,7 @@ class LLM:
         *,
         prompt_token_ids: List[int],
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[str], None]] = None,
+        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -262,7 +262,7 @@ class LLM:
         *,
         prompt_token_ids: List[List[int]],
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[str], None]] = None,
+        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -274,7 +274,7 @@ class LLM:
         sampling_params: None,
         prompt_token_ids: Union[List[int], List[List[int]]],
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[str], None]] = None,
+        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -288,7 +288,7 @@ class LLM:
         sampling_params: Optional[Union[SamplingParams,
                                         Sequence[SamplingParams]]] = None,
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[str], None]] = None,
+        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -306,7 +306,7 @@ class LLM:
                                         Sequence[SamplingParams]]] = None,
         prompt_token_ids: Optional[Union[List[int], List[List[int]]]] = None,
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[str], None]] = None,
+        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         guided_options_request: Optional[Union[LLMGuidedOptions,
@@ -912,7 +912,7 @@ class LLM:
         self,
         *,
         use_tqdm: bool,
-        state_callback: Optional[Callable[[str], None]] = None
+        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None
     ) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:
         # Initialize tqdm.
         if use_tqdm:
