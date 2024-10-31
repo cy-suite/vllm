@@ -391,7 +391,7 @@ class LLM:
             guided_options=guided_options_request,
             priority=priority)
 
-        outputs = self._run_engine(use_tqdm=use_tqdm, 
+        outputs = self._run_engine(use_tqdm=use_tqdm,
                                    state_callback=state_callback)
         return LLMEngine.validate_outputs(outputs, RequestOutput)
 
@@ -909,10 +909,10 @@ class LLM:
         return params
 
     def _run_engine(
-            self, 
-            *, 
-            use_tqdm: bool, 
-            state_callback: Optional[Callable[[str], None]] = None
+        self,
+        *,
+        use_tqdm: bool,
+        state_callback: Optional[Callable[[str], None]] = None
     ) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:
         # Initialize tqdm.
         if use_tqdm:
@@ -935,15 +935,15 @@ class LLM:
                 if output.finished:
                     outputs.append(output)
                     if ((use_tqdm or state_callback)
-                        and isinstance(output, RequestOutput)):
+                            and isinstance(output, RequestOutput)):
                         # Calculate tokens only for RequestOutput
                         assert output.prompt_token_ids is not None
-                        total_in_toks += len(output.prompt_token_ids)
+                        total_in_toks += len(output.prompt_token_ids)``
                         in_spd = total_in_toks / pbar.format_dict["elapsed"]
                         total_out_toks += sum(
                             len(stp.token_ids) for stp in output.outputs)
                         out_spd = (total_out_toks /
-                                    pbar.format_dict["elapsed"])
+                                   pbar.format_dict["elapsed"])
                         if use_tqdm:
                             pbar.postfix = (
                                 f"est. speed input: {in_spd:.2f} toks/s, "
