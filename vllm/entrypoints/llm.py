@@ -221,7 +221,7 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[int]] = None,
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
@@ -234,7 +234,7 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[List[int]]] = None,
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
@@ -248,7 +248,7 @@ class LLM:
         *,
         prompt_token_ids: List[int],
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
@@ -262,7 +262,7 @@ class LLM:
         *,
         prompt_token_ids: List[List[int]],
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
@@ -274,7 +274,7 @@ class LLM:
         sampling_params: None,
         prompt_token_ids: Union[List[int], List[List[int]]],
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
@@ -288,7 +288,7 @@ class LLM:
         sampling_params: Optional[Union[SamplingParams,
                                         Sequence[SamplingParams]]] = None,
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
@@ -306,7 +306,7 @@ class LLM:
                                         Sequence[SamplingParams]]] = None,
         prompt_token_ids: Optional[Union[List[int], List[List[int]]]] = None,
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         guided_options_request: Optional[Union[LLMGuidedOptions,
@@ -329,7 +329,7 @@ class LLM:
                 When it is a list, the list must have the same length as the
                 prompts and it is paired one by one with the prompt.
             use_tqdm: Whether to use tqdm to display the progress bar.
-            generate_stream: Whether to generate a stream of outputs. If True,
+            stream: Whether to generate a stream of outputs. If True,
                 the method will return a generator of RequestOutput objects as
                 they are generated. If False, the method will return a list of
                 RequestOutput objects after all the outputs are generated. 
@@ -395,7 +395,7 @@ class LLM:
             priority=priority)
 
         outputs = self._run_engine(use_tqdm=use_tqdm,
-                                   generate_stream=generate_stream)
+                                   stream=stream)
         return LLMEngine.validate_outputs(outputs, RequestOutput)
 
     def beam_search(
@@ -629,7 +629,7 @@ class LLM:
                                        Sequence[PoolingParams]]] = None,
         prompt_token_ids: Optional[List[int]] = None,
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
         ...
@@ -642,7 +642,7 @@ class LLM:
                                        Sequence[PoolingParams]]] = None,
         prompt_token_ids: Optional[List[List[int]]] = None,
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
         ...
@@ -656,7 +656,7 @@ class LLM:
         *,
         prompt_token_ids: List[int],
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
         ...
@@ -670,7 +670,7 @@ class LLM:
         *,
         prompt_token_ids: List[List[int]],
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
         ...
@@ -682,7 +682,7 @@ class LLM:
         pooling_params: None,
         prompt_token_ids: Union[List[int], List[List[int]]],
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
         ...
@@ -696,7 +696,7 @@ class LLM:
         pooling_params: Optional[Union[PoolingParams,
                                        Sequence[PoolingParams]]] = None,
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
         ...
@@ -714,7 +714,7 @@ class LLM:
                                        Sequence[PoolingParams]]] = None,
         prompt_token_ids: Optional[Union[List[int], List[List[int]]]] = None,
         use_tqdm: bool = True,
-        generate_stream: bool = False,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
     ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
@@ -731,7 +731,7 @@ class LLM:
             pooling_params: The pooling parameters for pooling. If None, we
                 use the default pooling parameters.
             use_tqdm: Whether to use tqdm to display the progress bar.
-            generate_stream: Whether to generate a stream of outputs. If True,
+            stream: Whether to generate a stream of outputs. If True,
                 the function will yield a generator of outputs. Otherwise, it
                 will return a list of outputs. Defaults to False.
             lora_request: LoRA request to use for generation, if any.
@@ -781,7 +781,7 @@ class LLM:
         )
 
         outputs = self._run_engine(use_tqdm=use_tqdm, 
-                                   generate_stream=generate_stream)
+                                   stream=stream)
         return LLMEngine.validate_outputs(outputs, EmbeddingRequestOutput)
 
     def start_profile(self) -> None:
@@ -926,7 +926,7 @@ class LLM:
         self,
         *,
         use_tqdm: bool,
-        generate_stream: bool = False
+        stream: bool = False
     ) -> Union[List[Union[RequestOutput, EmbeddingRequestOutput]], 
               Generator[Union[RequestOutput, EmbeddingRequestOutput], None, None]]:
         # Initialize tqdm.
@@ -942,14 +942,14 @@ class LLM:
 
             total_in_toks = total_out_toks = 0
 
-        if not generate_stream or use_tqdm:
+        if not stream or use_tqdm:
             outputs: List[Union[RequestOutput, EmbeddingRequestOutput]] = []
 
         while self.llm_engine.has_unfinished_requests():
             step_outputs = self.llm_engine.step()
             for output in step_outputs:
                 if output.finished:
-                    if generate_stream:
+                    if stream:
                         yield output
                     else:
                         outputs.append(output)
@@ -967,7 +967,7 @@ class LLM:
         if use_tqdm:
             pbar.close()
         
-        if not generate_stream:
+        if not stream:
             return sorted(outputs, key=lambda x: int(x.request_id))
 
     def _is_encoder_decoder_model(self):
