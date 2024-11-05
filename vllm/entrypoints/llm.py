@@ -1,8 +1,8 @@
 import itertools
 import warnings
 from contextlib import contextmanager
-from typing import (Any, ClassVar, Dict, Generator, List, Optional,
-                    Sequence, Tuple, Union, cast, overload)
+from typing import (Any, ClassVar, Dict, Generator, List, Optional, Sequence,
+                    Tuple, Union, cast, overload)
 
 from tqdm import tqdm
 
@@ -223,7 +223,7 @@ class LLM:
         use_tqdm: bool = True,
         stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
+    ) -> List[RequestOutput]:
         ...
 
     @overload  # LEGACY: multi (prompt + optional token ids)
@@ -236,7 +236,7 @@ class LLM:
         use_tqdm: bool = True,
         stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
+    ) -> List[RequestOutput]:
         ...
 
     @overload  # LEGACY: single (token ids + optional prompt)
@@ -250,7 +250,7 @@ class LLM:
         use_tqdm: bool = True,
         stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
+    ) -> List[RequestOutput]:
         ...
 
     @overload  # LEGACY: multi (token ids + optional prompt)
@@ -264,7 +264,7 @@ class LLM:
         use_tqdm: bool = True,
         stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
+    ) -> List[RequestOutput]:
         ...
 
     @overload  # LEGACY: single or multi token ids [pos-only]
@@ -276,7 +276,7 @@ class LLM:
         use_tqdm: bool = True,
         stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
+    ) -> List[RequestOutput]:
         ...
 
     @overload
@@ -290,7 +290,7 @@ class LLM:
         use_tqdm: bool = True,
         stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
+    ) -> List[RequestOutput]:
         ...
 
     @deprecate_kwargs(
@@ -312,7 +312,7 @@ class LLM:
         guided_options_request: Optional[Union[LLMGuidedOptions,
                                                GuidedDecodingRequest]] = None,
         priority: Optional[List[int]] = None,
-    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
+    ) -> List[RequestOutput]:
         """Generates the completions for the input prompts.
 
         This class automatically batches the given prompts, considering
@@ -394,8 +394,7 @@ class LLM:
             guided_options=guided_options_request,
             priority=priority)
 
-        outputs = self._run_engine(use_tqdm=use_tqdm,
-                                   stream=stream)
+        outputs = self._run_engine(use_tqdm=use_tqdm, stream=stream)
         return LLMEngine.validate_outputs(outputs, RequestOutput)
 
     def beam_search(
@@ -919,8 +918,8 @@ class LLM:
         *,
         use_tqdm: bool,
         stream: bool = False
-    ) -> Union[List[Union[RequestOutput, EmbeddingRequestOutput]], 
-              Generator[Union[RequestOutput, EmbeddingRequestOutput], None, None]]:
+    ) -> Union[List[Union[RequestOutput, EmbeddingRequestOutput]], Generator[
+            Union[RequestOutput, EmbeddingRequestOutput], None, None]]:
         # Initialize tqdm.
         if use_tqdm:
             num_requests = self.llm_engine.get_num_unfinished_requests()
@@ -934,8 +933,7 @@ class LLM:
 
             total_in_toks = total_out_toks = 0
 
-        if not stream or use_tqdm:
-            outputs: List[Union[RequestOutput, EmbeddingRequestOutput]] = []
+        outputs: List[Union[RequestOutput, EmbeddingRequestOutput]] = []
 
         while self.llm_engine.has_unfinished_requests():
             step_outputs = self.llm_engine.step()
@@ -945,22 +943,28 @@ class LLM:
                         yield output
                     else:
                         outputs.append(output)
-                        
-                    if use_tqdm:
-                        if isinstance(output, RequestOutput):
-                            assert output.prompt_token_ids is not None
-                            total_in_toks += len(output.prompt_token_ids)
-                            total_out_toks += sum(len(stp.token_ids) for stp in output.outputs)
-                            pbar.postfix = (
-                                f"est. speed input: {total_in_toks/pbar.format_dict['elapsed']:.2f} toks/s, "
-                                f"output: {total_out_toks/pbar.format_dict['elapsed']:.2f} toks/s")
-                        pbar.update(1)
+
+                        if use_tqdm:
+                            if isinstance(output, RequestOutput):
+                                # Calculate tokens only for RequestOutput
+                                assert output.prompt_token_ids is not None
+                                total_in_toks += len(output.prompt_token_ids)
+                                in_spd = (total_in_toks /
+                                          pbar.format_dict["elapsed"])
+                                total_out_toks += sum(
+                                    len(stp.token_ids)
+                                    for stp in output.outputs)
+                                out_spd = (total_out_toks /
+                                           pbar.format_dict["elapsed"])
+                                pbar.postfix = (
+                                    f"est. speed input: {in_spd:.2f} toks/s, "
+                                    f"output: {out_spd:.2f} toks/s")
+                            pbar.update(1)
 
         if use_tqdm:
             pbar.close()
-        
-        if not stream:
-            return sorted(outputs, key=lambda x: int(x.request_id))
+
+        return sorted(outputs, key=lambda x: int(x.request_id))
 
     def _is_encoder_decoder_model(self):
         return self.llm_engine.is_encoder_decoder_model()
