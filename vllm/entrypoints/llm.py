@@ -1,8 +1,8 @@
 import itertools
 import warnings
 from contextlib import contextmanager
-from typing import (Any, Callable, ClassVar, Dict, List, Optional, Sequence,
-                    Tuple, Union, cast, overload)
+from typing import (Any, ClassVar, Dict, Generator, List, Optional,
+                    Sequence, Tuple, Union, cast, overload)
 
 from tqdm import tqdm
 
@@ -221,9 +221,9 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[int]] = None,
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        generate_stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> List[RequestOutput]:
+    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
 
     @overload  # LEGACY: multi (prompt + optional token ids)
@@ -234,9 +234,9 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[List[int]]] = None,
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        generate_stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> List[RequestOutput]:
+    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
 
     @overload  # LEGACY: single (token ids + optional prompt)
@@ -248,9 +248,9 @@ class LLM:
         *,
         prompt_token_ids: List[int],
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        generate_stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> List[RequestOutput]:
+    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
 
     @overload  # LEGACY: multi (token ids + optional prompt)
@@ -262,9 +262,9 @@ class LLM:
         *,
         prompt_token_ids: List[List[int]],
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        generate_stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> List[RequestOutput]:
+    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
 
     @overload  # LEGACY: single or multi token ids [pos-only]
@@ -274,9 +274,9 @@ class LLM:
         sampling_params: None,
         prompt_token_ids: Union[List[int], List[List[int]]],
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        generate_stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> List[RequestOutput]:
+    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
 
     @overload
@@ -288,9 +288,9 @@ class LLM:
         sampling_params: Optional[Union[SamplingParams,
                                         Sequence[SamplingParams]]] = None,
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        generate_stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> List[RequestOutput]:
+    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         ...
 
     @deprecate_kwargs(
@@ -306,13 +306,13 @@ class LLM:
                                         Sequence[SamplingParams]]] = None,
         prompt_token_ids: Optional[Union[List[int], List[List[int]]]] = None,
         use_tqdm: bool = True,
-        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        generate_stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         guided_options_request: Optional[Union[LLMGuidedOptions,
                                                GuidedDecodingRequest]] = None,
         priority: Optional[List[int]] = None,
-    ) -> List[RequestOutput]:
+    ) -> Union[List[RequestOutput], Generator[RequestOutput, None, None]]:
         """Generates the completions for the input prompts.
 
         This class automatically batches the given prompts, considering
@@ -329,8 +329,11 @@ class LLM:
                 When it is a list, the list must have the same length as the
                 prompts and it is paired one by one with the prompt.
             use_tqdm: Whether to use tqdm to display the progress bar.
-            state_callback: A callback function that will be called with the
-                current state of the generation.
+            generate_stream: Whether to generate a stream of outputs. If True,
+                the method will return a generator of RequestOutput objects as
+                they are generated. If False, the method will return a list of
+                RequestOutput objects after all the outputs are generated. 
+                Defaults to False.
             lora_request: LoRA request to use for generation, if any.
             prompt_adapter_request: Prompt Adapter request to use for
                 generation, if any.
@@ -392,7 +395,7 @@ class LLM:
             priority=priority)
 
         outputs = self._run_engine(use_tqdm=use_tqdm,
-                                   state_callback=state_callback)
+                                   generate_stream=generate_stream)
         return LLMEngine.validate_outputs(outputs, RequestOutput)
 
     def beam_search(
@@ -912,8 +915,9 @@ class LLM:
         self,
         *,
         use_tqdm: bool,
-        state_callback: Optional[Callable[[Dict[str, Any]], None]] = None
-    ) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:
+        generate_stream: bool = False
+    ) -> Union[List[Union[RequestOutput, EmbeddingRequestOutput]], 
+              Generator[Union[RequestOutput, EmbeddingRequestOutput], None, None]]:
         # Initialize tqdm.
         if use_tqdm:
             num_requests = self.llm_engine.get_num_unfinished_requests()
@@ -925,47 +929,35 @@ class LLM:
                          f"output: {0:.2f} toks/s"),
             )
 
-        # Run the engine.
-        outputs: List[Union[RequestOutput, EmbeddingRequestOutput]] = []
-        total_in_toks = 0
-        total_out_toks = 0
+            total_in_toks = total_out_toks = 0
+
+        if not generate_stream or use_tqdm:
+            outputs: List[Union[RequestOutput, EmbeddingRequestOutput]] = []
+
         while self.llm_engine.has_unfinished_requests():
             step_outputs = self.llm_engine.step()
             for output in step_outputs:
                 if output.finished:
-                    outputs.append(output)
-                    if ((use_tqdm or state_callback)
-                            and isinstance(output, RequestOutput)):
-                        # Calculate tokens only for RequestOutput
-                        assert output.prompt_token_ids is not None
-                        total_in_toks += len(output.prompt_token_ids)
-                        in_spd = total_in_toks / pbar.format_dict["elapsed"]
-                        total_out_toks += sum(
-                            len(stp.token_ids) for stp in output.outputs)
-                        out_spd = (total_out_toks /
-                                   pbar.format_dict["elapsed"])
-                        if use_tqdm:
+                    if generate_stream:
+                        yield output
+                    else:
+                        outputs.append(output)
+                        
+                    if use_tqdm:
+                        if isinstance(output, RequestOutput):
+                            assert output.prompt_token_ids is not None
+                            total_in_toks += len(output.prompt_token_ids)
+                            total_out_toks += sum(len(stp.token_ids) for stp in output.outputs)
                             pbar.postfix = (
-                                f"est. speed input: {in_spd:.2f} toks/s, "
-                                f"output: {out_spd:.2f} toks/s")
-                            pbar.update(1)
-                        if state_callback:
-                            payload = {
-                                "output": output,
-                                "outputs_completed": len(outputs),
-                                "total_input_tokens": total_in_toks,
-                                "total_output_tokens": total_out_toks,
-                                "input_speed": in_spd,
-                                "output_speed": out_spd,
-                            }
-                            state_callback(payload)
+                                f"est. speed input: {total_in_toks/pbar.format_dict['elapsed']:.2f} toks/s, "
+                                f"output: {total_out_toks/pbar.format_dict['elapsed']:.2f} toks/s")
+                        pbar.update(1)
 
         if use_tqdm:
             pbar.close()
-        # Sort the outputs by request ID.
-        # This is necessary because some requests may be finished earlier than
-        # its previous requests.
-        return sorted(outputs, key=lambda x: int(x.request_id))
+        
+        if not generate_stream:
+            return sorted(outputs, key=lambda x: int(x.request_id))
 
     def _is_encoder_decoder_model(self):
         return self.llm_engine.is_encoder_decoder_model()
