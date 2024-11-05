@@ -629,9 +629,8 @@ class LLM:
                                        Sequence[PoolingParams]]] = None,
         prompt_token_ids: Optional[List[int]] = None,
         use_tqdm: bool = True,
-        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
+    ) -> List[EmbeddingRequestOutput]:
         ...
 
     @overload  # LEGACY: multi (prompt + optional token ids)
@@ -642,9 +641,8 @@ class LLM:
                                        Sequence[PoolingParams]]] = None,
         prompt_token_ids: Optional[List[List[int]]] = None,
         use_tqdm: bool = True,
-        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
+    ) -> List[EmbeddingRequestOutput]:
         ...
 
     @overload  # LEGACY: single (token ids + optional prompt)
@@ -656,9 +654,8 @@ class LLM:
         *,
         prompt_token_ids: List[int],
         use_tqdm: bool = True,
-        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
+    ) -> List[EmbeddingRequestOutput]:
         ...
 
     @overload  # LEGACY: multi (token ids + optional prompt)
@@ -670,9 +667,8 @@ class LLM:
         *,
         prompt_token_ids: List[List[int]],
         use_tqdm: bool = True,
-        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
+    ) -> List[EmbeddingRequestOutput]:
         ...
 
     @overload  # LEGACY: single or multi token ids [pos-only]
@@ -682,9 +678,8 @@ class LLM:
         pooling_params: None,
         prompt_token_ids: Union[List[int], List[List[int]]],
         use_tqdm: bool = True,
-        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
+    ) -> List[EmbeddingRequestOutput]:
         ...
 
     @overload
@@ -696,9 +691,8 @@ class LLM:
         pooling_params: Optional[Union[PoolingParams,
                                        Sequence[PoolingParams]]] = None,
         use_tqdm: bool = True,
-        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
-    ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
+    ) -> List[EmbeddingRequestOutput]:
         ...
 
     @deprecate_kwargs(
@@ -714,10 +708,9 @@ class LLM:
                                        Sequence[PoolingParams]]] = None,
         prompt_token_ids: Optional[Union[List[int], List[List[int]]]] = None,
         use_tqdm: bool = True,
-        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
-    ) -> Union[List[EmbeddingRequestOutput], Generator[EmbeddingRequestOutput, None, None]]:
+    ) -> List[EmbeddingRequestOutput]:
         """Generates the completions for the input prompts.
 
         This class automatically batches the given prompts, considering
@@ -780,8 +773,7 @@ class LLM:
             prompt_adapter_request=prompt_adapter_request,
         )
 
-        outputs = self._run_engine(use_tqdm=use_tqdm, 
-                                   stream=stream)
+        outputs = self._run_engine(use_tqdm=use_tqdm)
         return LLMEngine.validate_outputs(outputs, EmbeddingRequestOutput)
 
     def start_profile(self) -> None:
