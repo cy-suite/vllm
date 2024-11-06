@@ -950,12 +950,11 @@ class LLM:
                             assert output.prompt_token_ids is not None
                             total_in_toks += len(output.prompt_token_ids)
                             in_spd = (total_in_toks /
-                                        pbar.format_dict["elapsed"])
+                                      pbar.format_dict["elapsed"])
                             total_out_toks += sum(
-                                len(stp.token_ids)
-                                for stp in output.outputs)
+                                len(stp.token_ids) for stp in output.outputs)
                             out_spd = (total_out_toks /
-                                        pbar.format_dict["elapsed"])
+                                       pbar.format_dict["elapsed"])
                             pbar.postfix = (
                                 f"est. speed input: {in_spd:.2f} toks/s, "
                                 f"output: {out_spd:.2f} toks/s")
