@@ -963,7 +963,10 @@ class LLM:
         if use_tqdm:
             pbar.close()
 
-        return sorted(outputs, key=lambda x: int(x.request_id))
+        if stream:
+            return None
+        else:
+            return sorted(outputs, key=lambda x: int(x.request_id))
 
     def _is_encoder_decoder_model(self):
         return self.llm_engine.is_encoder_decoder_model()
