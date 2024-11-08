@@ -20,6 +20,7 @@ from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.sampler import Sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import ParallelLMHead
 from vllm.model_executor.model_loader import get_model
+from contextlib import contextmanager
 
 
 class ContextIDInfo(TypedDict):
@@ -63,6 +64,20 @@ def cleanup_fixture(should_do_global_cleanup_after_test: bool):
 
 @pytest.fixture
 def dist_init():
+    temp_file = tempfile.mkstemp()[1]
+    init_distributed_environment(
+        world_size=1,
+        rank=0,
+        distributed_init_method=f"file://{temp_file}",
+        local_rank=0,
+        backend="nccl",
+    )
+    initialize_model_parallel(1, 1)
+    yield
+    cleanup_dist_env_and_memory(shutdown_ray=True)
+
+@contextmanager
+def _dist_init():
     temp_file = tempfile.mkstemp()[1]
     init_distributed_environment(
         world_size=1,
@@ -274,3 +289,20 @@ def llama_2_7b_engine_extra_embeddings():
 def llama_2_7b_model_extra_embeddings(llama_2_7b_engine_extra_embeddings):
     yield (llama_2_7b_engine_extra_embeddings.model_executor.driver_worker.
            model_runner.model)
+
+
+@pytest.fixture(params=[True])
+def run_with_both_engines_lora(request):
+    # Automatically runs tests twice, once with V1 and once without
+    use_v1 = request.param
+    # Tests decorated with `@skip_v1` are only run without v1
+    skip_v1 = request.node.get_closest_marker("skip_v1")
+
+    if use_v1:
+        if skip_v1:
+            pytest.skip("Skipping test on vllm V1")
+        with patch('vllm.envs.VLLM_USE_V1', True):
+            yield
+    else:
+        with patch('vllm.envs.VLLM_USE_V1', False):
+            yield

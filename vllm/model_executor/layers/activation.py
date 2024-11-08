@@ -60,7 +60,7 @@ class SiluAndMul(CustomOp):
 
     def forward_native(self, x: torch.Tensor) -> torch.Tensor:
         """PyTorch-native implementation equivalent to forward()."""
-        d = x.shape[-1] // 2
+        d = x.size(-1) // 2
         return F.silu(x[..., :d]) * x[..., d:]
 
     def forward_cuda(self, x: torch.Tensor) -> torch.Tensor:

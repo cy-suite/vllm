@@ -13,6 +13,12 @@ from vllm.lora.ops.bgmv_shrink import bgmv_shrink
 from vllm.lora.ops.sgmv_expand import sgmv_expand
 from vllm.lora.ops.sgmv_expand_slice import sgmv_expand_slice
 from vllm.lora.ops.sgmv_shrink import sgmv_shrink
+
+from vllm.lora.ops.v1.lora_expand import lora_expand
+from vllm.lora.ops.v1.lora_shrink import lora_shrink
+from vllm.lora.ops.v1.lora_expand_slice import lora_expand_slice
+from vllm.lora.punica_wrapper.v1_gpu import V1KernelMeta
+
 from vllm.platforms import current_platform
 
 from .utils import (generate_data, generate_data_for_expand_nslices,
@@ -370,6 +376,156 @@ def test_punica_expand_nslices(
             inputs_tensor,
             lora_weights,
             lora_indices_tensor,
+            seq_len_tensor,
+            batches,
+            1.0,
+            op_type="expand",
+        )
+
+        slice_offset += hidden_size
+    assert_close(our_outputs, ref_outputs)
+
+@pytest.mark.parametrize("batches", BATCHES)
+@pytest.mark.parametrize("num_loras", NUM_LORA)
+@pytest.mark.parametrize("rank", MAX_RANKS)
+@pytest.mark.parametrize("hidden_size", HIDDEN_SIZES)
+@pytest.mark.parametrize("scaling", SCALES)
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("op_type", ["shrink", "expand"])
+@pytest.mark.parametrize("seq_length", [1, 128])
+@pytest.mark.parametrize("seed", SEED)
+@pytest.mark.parametrize("device", CUDA_DEVICES)
+def test_v1_shrink_expand(
+    batches: int,
+    num_loras: int,
+    rank: int,
+    hidden_size: int,
+    scaling: float,
+    dtype: torch.dtype,
+    op_type: str,
+    seq_length: int,
+    seed: int,
+    device: str,
+):
+    torch.set_default_device(device)
+    current_platform.seed_everything(seed)
+
+    (
+        inputs_tensor,
+        lora_weights,
+        our_out_tensor,
+        ref_out_tensor,
+        b_seq_start_loc,
+        prompt_lora_mapping,
+        seq_len_tensor,
+        token_lora_mapping,
+    ) = generate_data(
+        batches,
+        hidden_size,
+        num_loras,
+        rank,
+        seq_length,
+        dtype,
+        op_type,
+        device,
+    )
+
+    v1_meta: V1KernelMeta = V1KernelMeta.make(max_loras = num_loras, max_num_tokens = seq_length * batches, device=device)
+    v1_meta.reset()
+    v1_meta.prepare_tensors(token_lora_mapping)
+
+    if op_type == "shrink":
+        lora_shrink(inputs_tensor,
+                    lora_weights,
+                    our_out_tensor,
+                    *v1_meta.meta_args,
+                    scaling )
+    else:
+        lora_expand(inputs_tensor,
+                    lora_weights,
+                    our_out_tensor,
+                    *v1_meta.meta_args,
+                    add_inputs=True)
+
+    ref_torch_groupgemm(
+        ref_out_tensor,
+        inputs_tensor,
+        lora_weights,
+        prompt_lora_mapping,
+        seq_len_tensor,
+        batches,
+        scaling if op_type == "shrink" else 1.0,
+        op_type,
+    )
+    if op_type == "shrink":
+        ref_out_tensor = ref_out_tensor.to(torch.float32)
+    assert_close(our_out_tensor, ref_out_tensor)
+
+
+@pytest.mark.parametrize("batches", BATCHES)
+@pytest.mark.parametrize("num_loras", NUM_LORA)
+@pytest.mark.parametrize("rank", MAX_RANKS)
+@pytest.mark.parametrize("hidden_size", HIDDEN_SIZES)
+@pytest.mark.parametrize("nslices", [2, 3])
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("seq_length", [1, 128])
+@pytest.mark.parametrize("seed", SEED)
+@pytest.mark.parametrize("device", CUDA_DEVICES)
+def test_v1_expand_nslices(
+    batches: int,
+    num_loras: int,
+    rank: int,
+    hidden_size: int,
+    nslices: int,
+    dtype: torch.dtype,
+    seq_length: int,
+    seed: int,
+    device: str,
+):
+
+    torch.set_default_device(device)
+    current_platform.seed_everything(seed)
+
+    (
+        inputs_tensor,
+        lora_weights_lst,
+        our_outputs,
+        ref_outputs,
+        b_seq_start_loc,
+        prompt_lora_mapping,
+        seq_len_tensor,
+        token_lora_mapping,
+    ) = generate_data_for_expand_nslices(
+        batches,
+        hidden_size,
+        num_loras,
+        rank,
+        seq_length,
+        dtype,
+        nslices,
+        device,
+    )
+
+    v1_meta: V1KernelMeta = V1KernelMeta.make(max_loras = num_loras, max_num_tokens = seq_length * batches, device=device)
+    v1_meta.reset()
+    v1_meta.prepare_tensors(token_lora_mapping)
+
+    slice_offset = 0
+    for index in range(nslices):
+        lora_weights = lora_weights_lst[index]
+        lora_expand_slice(inputs_tensor,
+                        lora_weights,
+                        our_outputs,
+                        *v1_meta.meta_args,
+                        slice_offset,
+                        hidden_size,
+                        add_inputs=True)
+
+        ref_torch_groupgemm(
+            ref_outputs[:, slice_offset:slice_offset + hidden_size],
+            inputs_tensor,
+            lora_weights,
+            prompt_lora_mapping,
             seq_len_tensor,
             batches,
             1.0,

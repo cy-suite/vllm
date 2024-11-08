@@ -231,8 +231,9 @@ class VocabParallelEmbeddingWithLoRA(BaseLayerWithLoRA):
                 self.embeddings_weights[:embeddings.shape[0]].copy_(embeddings)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        added_tokens_mask = x > self.base_layer.org_vocab_size - 1
-        embeddings_indices = self.punica_wrapper.embeddings_indices
+        added_tokens_mask = torch.where(x > self.base_layer.org_vocab_size - 1, 1, 0)
+        embeddings_indices = torch.narrow(self.punica_wrapper._embeddings_indices, 1, 0, x.size(0))
+        
         indices = embeddings_indices[1].view_as(x)
         full_lora_a_embeddings = F.embedding(
             x + indices,
@@ -245,11 +246,11 @@ class VocabParallelEmbeddingWithLoRA(BaseLayerWithLoRA):
         full_output_org = full_output
         if full_output.ndim == 3:
             full_output = full_output.view(
-                full_output.shape[0] * full_output.shape[1], -1)
+                full_output.size(0) * full_output.size(1), -1)
         if full_lora_a_embeddings.ndim == 3:
             full_lora_a_embeddings = full_lora_a_embeddings.view(
-                full_lora_a_embeddings.shape[0] *
-                full_lora_a_embeddings.shape[1],
+                full_lora_a_embeddings.size(0) *
+                full_lora_a_embeddings.size(1),
                 -1,
             )
         self.punica_wrapper.add_lora_embedding(full_output,
@@ -1028,7 +1029,19 @@ class LogitsProcessorWithLoRA(BaseLayerWithLoRA):
         logits = lm_head.linear_method.apply(lm_head, hidden_states)
         if embedding_bias is not None:
             logits += embedding_bias
-        logits = tensor_model_parallel_gather(logits)
+
+        # TODO (varun) : Replace with base layer get_logits()
+        if self.use_gather:
+            # None may be returned for rank > 0
+            logits = tensor_model_parallel_gather(logits)
+        else:
+            # Gather is not supported for some devices such as TPUs.
+            # Use all-gather instead.
+            # NOTE(woosuk): Here, the outputs of every device should not be None
+            # because XLA requires strict SPMD among all devices. Every device
+            # should execute the same operations after gathering the logits.
+            logits = tensor_model_parallel_all_gather(logits)
+
         if logits is None:
             return None
 
@@ -1065,19 +1078,19 @@ class LogitsProcessorWithLoRA(BaseLayerWithLoRA):
         lora_logits = lora_logits.mT
         indices_padded = self.punica_wrapper.sampler_indices_padded
         lora_logits = (lora_logits.reshape(
-            lora_logits.shape[0] * lora_logits.shape[1],
-            lora_logits.shape[2],
+            lora_logits.size(0) * lora_logits.size(1),
+            lora_logits.size(2),
         ).index_select(0, indices_padded).nan_to_num_(nan=float("-inf"),
                                                       posinf=float("inf"),
                                                       neginf=float("-inf")))
 
         # HPU needs special handling to prune out dummy samples.
         if current_platform.is_hpu():
-            lora_logits = lora_logits[:logits.shape[0], :]
+            lora_logits = lora_logits[:logits.size(0), :]
 
         logits[:,
                self.base_layer.org_vocab_size:self.base_layer.org_vocab_size +
-               lora_logits.shape[1]] = lora_logits
+               lora_logits.size(1)] = lora_logits
 
         # LogitsProcessorWithLoRA always using bgmv
         self.punica_wrapper.add_lora_logits(logits, hidden_states,

@@ -167,7 +167,7 @@ class PunicaWrapperBase(PunicaWrapperABC):
         self.is_prefill = False
         self.no_lora = False
 
-    def _update_base_metadata(
+    def update_base_metadata(
         self,
         mapping: "LoRAMapping",
         lora_index_to_id: List[Optional[int]],
@@ -192,16 +192,16 @@ class PunicaWrapperBase(PunicaWrapperABC):
             self.device,
             long_lora_context,
         )
-        self._token_lora_indices[:base_indices.shape[0]].copy_(base_indices)
-        self._sampler_indices[:sampler_indices.shape[0]].copy_(sampler_indices)
-        self._sampler_indices_padded[:sampler_indices_padded.shape[0]].copy_(
-            sampler_indices_padded)
+        self._token_lora_indices[:base_indices.size(0)].copy_(base_indices, non_blocking=True)
+        self._sampler_indices[:sampler_indices.size(0)].copy_(sampler_indices, non_blocking=True)
+        self._sampler_indices_padded[:sampler_indices_padded.size(0)].copy_(
+            sampler_indices_padded, non_blocking=True)
         self._embeddings_indices[:embeddings_indices.
-                                 shape[0], :embeddings_indices.shape[1]].copy_(
-                                     embeddings_indices)
+                                 size(0), :embeddings_indices.size(1)].copy_(
+                                     embeddings_indices, non_blocking=True)
         if long_lora_offsets_tensor is not None:
-            self._long_lora_indices[:long_lora_offsets_tensor.shape[0]].copy_(
-                long_lora_offsets_tensor)
+            self._long_lora_indices[:long_lora_offsets_tensor.size(0)].copy_(
+                long_lora_offsets_tensor, non_blocking=True)
         else:
             self._long_lora_indices.zero_()
         self.indices_len[:] = indices_len
@@ -212,10 +212,10 @@ class PunicaWrapperBase(PunicaWrapperABC):
          batch_size, max_length, token_nums,
          no_lora) = compute_meta(token_lora_tensor)
 
-        self._seq_start_locs[:b_seq_start_tensor.shape[0]].copy_(
+        self._seq_start_locs[:b_seq_start_tensor.size(0)].copy_(
             b_seq_start_tensor)
-        self._seq_lengths[:seq_length_tensor.shape[0]].copy_(seq_length_tensor)
-        self._lora_indices_per_batch[:lora_indices_tensor.shape[0]].copy_(
+        self._seq_lengths[:seq_length_tensor.size(0)].copy_(seq_length_tensor)
+        self._lora_indices_per_batch[:lora_indices_tensor.size(0)].copy_(
             lora_indices_tensor)
         self.batch_size = batch_size
         self.max_length = max_length
@@ -239,14 +239,14 @@ class PunicaWrapperBase(PunicaWrapperABC):
                             where n is number of slices
         """
         org_output = output
-        output = output.view(-1, output.shape[-1])
+        output = output.view(-1, output.size(-1))
         indices = indices.view(-1)
 
         offset_left = 0
         for slice_idx, slice in enumerate(output_slices):
             bias = lora_bias_stacked[slice_idx]
             if bias is not None:
-                bias = bias.view(-1, bias.shape[-1])
+                bias = bias.view(-1, bias.size(-1))
                 bias = bias[indices]
                 bias[indices == -1] = 0
                 output[:, offset_left:offset_left + slice] += bias
@@ -328,7 +328,7 @@ class PunicaWrapperBase(PunicaWrapperABC):
             long_lora_context: Optional["LongContextLoRAContext"] = None,
             **kwargs):
 
-        self._update_base_metadata(mapping, lora_index_to_id, max_loras,
+        self.update_base_metadata(mapping, lora_index_to_id, max_loras,
                                    vocab_size, extra_vocab_size,
                                    long_lora_context)
         if mapping.is_prefill:

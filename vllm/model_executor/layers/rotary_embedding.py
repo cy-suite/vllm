@@ -129,7 +129,7 @@ class RotaryEmbedding(CustomOp):
         if offsets is not None:
             positions = positions + offsets
         positions = positions.flatten()
-        num_tokens = positions.shape[0]
+        num_tokens = positions.size(0)
         cos_sin = self.cos_sin_cache.index_select(0, positions)
         cos, sin = cos_sin.chunk(2, dim=-1)
 

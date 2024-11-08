@@ -46,7 +46,7 @@ class RMSNorm(CustomOp):
             x = x + residual.to(torch.float32)
             residual = x.to(orig_dtype)
 
-        hidden_size = x.shape[-1]
+        hidden_size = x.size(-1)
         if hidden_size != self.hidden_size:
             raise ValueError("Expected hidden_size to be "
                              f"{self.hidden_size}, but found: {hidden_size}")

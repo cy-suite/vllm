@@ -4,6 +4,7 @@ import dataclasses
 import json
 import random
 import time
+import pickle
 from functools import cache
 from typing import Dict, List, Optional, Tuple
 
@@ -24,7 +25,10 @@ from vllm.multimodal import MultiModalDataDict
 from vllm.sampling_params import BeamSearchParams
 from vllm.transformers_utils.tokenizer import AnyTokenizer, get_lora_tokenizer
 from vllm.utils import FlexibleArgumentParser, merge_async_iterators
+from vllm.outputs import RequestOutput
 
+SAMPLING_TEMPERATURE=0.0
+SAMPLING_TOP_P=1.0
 
 @dataclasses.dataclass
 class SampleRequest:
@@ -165,7 +169,7 @@ def run_vllm(
     requests: List[SampleRequest],
     n: int,
     engine_args: EngineArgs,
-) -> float:
+) -> Tuple[float, Optional[List[RequestOutput]]]:
     from vllm import LLM, SamplingParams
     llm = LLM(**dataclasses.asdict(engine_args))
 
@@ -179,8 +183,8 @@ def run_vllm(
         sampling_params.append(
             SamplingParams(
                 n=n,
-                temperature=1.0,
-                top_p=1.0,
+                temperature=SAMPLING_TEMPERATURE,
+                top_p=SAMPLING_TOP_P,
                 ignore_eos=True,
                 max_tokens=request.expected_output_len,
             ))
@@ -190,9 +194,10 @@ def run_vllm(
 
     use_beam_search = False
 
+    outputs = None
     if not use_beam_search:
         start = time.perf_counter()
-        llm.generate(prompts,
+        outputs = llm.generate(prompts,
                      sampling_params,
                      lora_request=lora_requests,
                      use_tqdm=True)
@@ -213,7 +218,7 @@ def run_vllm(
                 ignore_eos=True,
             ))
         end = time.perf_counter()
-    return end - start
+    return end - start, outputs
 
 
 async def run_vllm_async(
@@ -221,7 +226,7 @@ async def run_vllm_async(
     n: int,
     engine_args: AsyncEngineArgs,
     disable_frontend_multiprocessing: bool = False,
-) -> float:
+) -> Tuple[float, Optional[List[RequestOutput]]]:
     from vllm import SamplingParams
 
     async with build_async_engine_client_from_engine_args(
@@ -238,8 +243,8 @@ async def run_vllm_async(
             sampling_params.append(
                 SamplingParams(
                     n=n,
-                    temperature=1.0,
-                    top_p=1.0,
+                    temperature=SAMPLING_TEMPERATURE,
+                    top_p=SAMPLING_TOP_P,
                     ignore_eos=True,
                     max_tokens=request.expected_output_len,
                 ))
@@ -255,10 +260,17 @@ async def run_vllm_async(
                                      request_id=f"test{i}")
             generators.append(generator)
         all_gens = merge_async_iterators(*generators)
+        outputs_dict = {}
         async for i, res in all_gens:
-            pass
+            outputs_dict[i] = res
         end = time.perf_counter()
-        return end - start
+
+        num_prompts = len(prompts)
+        outputs = []
+        for i in range(num_prompts):
+            outputs.append(outputs_dict[i])
+
+        return end - start, outputs
 
 
 def run_hf(
@@ -391,7 +403,7 @@ def main(args: argparse.Namespace):
                          for request in requests)
     if args.backend == "vllm":
         if args.async_engine:
-            elapsed_time = uvloop.run(
+            elapsed_time, outputs = uvloop.run(
                 run_vllm_async(
                     requests,
                     args.n,
@@ -399,8 +411,14 @@ def main(args: argparse.Namespace):
                     args.disable_frontend_multiprocessing,
                 ))
         else:
-            elapsed_time = run_vllm(requests, args.n,
+            elapsed_time, outputs = run_vllm(requests, args.n,
                                     EngineArgs.from_cli_args(args))
+        
+        if args.pickle_outputs:
+            print("Pickling request outputs : ")
+            with open("outputs.pkl", "wb+") as f:
+                pickle.dump(outputs, f)
+
     elif args.backend == "hf":
         assert args.tensor_parallel_size == 1
         elapsed_time = run_hf(requests, args.model, tokenizer, args.n,
@@ -489,6 +507,11 @@ if __name__ == "__main__":
         default=None,
         help="Path to the lora adapters to use. This can be an absolute path, "
         "a relative path, or a Hugging Face model identifier.")
+
+    parser.add_argument("--pickle-outputs",
+                        action="store_true",
+                        default=False,
+                        help="Pickle outputs got from benchmark")
 
     parser = AsyncEngineArgs.add_cli_args(parser)
     args = parser.parse_args()
