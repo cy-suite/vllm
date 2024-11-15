@@ -1,8 +1,8 @@
 import itertools
 import warnings
 from contextlib import contextmanager
-from typing import (Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Type,
-                    Union, cast, overload)
+from typing import (Any, ClassVar, Dict, Generator, List, Optional, Sequence,
+                    Tuple, Type, Union, cast, overload)
 
 from tqdm import tqdm
 
@@ -242,6 +242,7 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[int]] = None,
         use_tqdm: bool = True,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -254,6 +255,7 @@ class LLM:
                                         List[SamplingParams]]] = None,
         prompt_token_ids: Optional[List[List[int]]] = None,
         use_tqdm: bool = True,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -267,6 +269,7 @@ class LLM:
         *,
         prompt_token_ids: List[int],
         use_tqdm: bool = True,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -280,6 +283,7 @@ class LLM:
         *,
         prompt_token_ids: List[List[int]],
         use_tqdm: bool = True,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -291,6 +295,7 @@ class LLM:
         sampling_params: None,
         prompt_token_ids: Union[List[int], List[List[int]]],
         use_tqdm: bool = True,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -304,6 +309,7 @@ class LLM:
         sampling_params: Optional[Union[SamplingParams,
                                         Sequence[SamplingParams]]] = None,
         use_tqdm: bool = True,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
     ) -> List[RequestOutput]:
         ...
@@ -321,6 +327,7 @@ class LLM:
                                         Sequence[SamplingParams]]] = None,
         prompt_token_ids: Optional[Union[List[int], List[List[int]]]] = None,
         use_tqdm: bool = True,
+        stream: bool = False,
         lora_request: Optional[Union[List[LoRARequest], LoRARequest]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         guided_options_request: Optional[Union[LLMGuidedOptions,
@@ -343,6 +350,11 @@ class LLM:
                 When it is a list, the list must have the same length as the
                 prompts and it is paired one by one with the prompt.
             use_tqdm: Whether to use tqdm to display the progress bar.
+            stream: Whether to generate a stream of outputs. If True,
+                the method will return a generator of RequestOutput objects as
+                they are generated. If False, the method will return a list of
+                RequestOutput objects after all the outputs are generated. 
+                Defaults to False.
             lora_request: LoRA request to use for generation, if any.
             prompt_adapter_request: Prompt Adapter request to use for
                 generation, if any.
@@ -403,7 +415,7 @@ class LLM:
             guided_options=guided_options_request,
             priority=priority)
 
-        outputs = self._run_engine(use_tqdm=use_tqdm)
+        outputs = self._run_engine(use_tqdm=use_tqdm, stream=stream)
         return self.engine_class.validate_outputs(outputs, RequestOutput)
 
     def beam_search(
@@ -732,6 +744,9 @@ class LLM:
             pooling_params: The pooling parameters for pooling. If None, we
                 use the default pooling parameters.
             use_tqdm: Whether to use tqdm to display the progress bar.
+            stream: Whether to generate a stream of outputs. If True,
+                the function will yield a generator of outputs. Otherwise, it
+                will return a list of outputs. Defaults to False.
             lora_request: LoRA request to use for generation, if any.
             prompt_adapter_request: Prompt Adapter request to use for
                 generation, if any.
@@ -921,8 +936,12 @@ class LLM:
         return params
 
     def _run_engine(
-            self, *, use_tqdm: bool
-    ) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:
+        self,
+        *,
+        use_tqdm: bool,
+        stream: bool = False
+    ) -> Union[List[Union[RequestOutput, EmbeddingRequestOutput]], Generator[
+            Union[RequestOutput, EmbeddingRequestOutput], None, None]]:
         # Initialize tqdm.
         if use_tqdm:
             num_requests = self.llm_engine.get_num_unfinished_requests()
@@ -934,21 +953,26 @@ class LLM:
                          f"output: {0:.2f} toks/s"),
             )
 
-        # Run the engine.
+            total_in_toks = total_out_toks = 0
+
         outputs: List[Union[RequestOutput, EmbeddingRequestOutput]] = []
-        total_in_toks = 0
-        total_out_toks = 0
+
         while self.llm_engine.has_unfinished_requests():
             step_outputs = self.llm_engine.step()
             for output in step_outputs:
                 if output.finished:
-                    outputs.append(output)
+                    if stream:
+                        yield output
+                    else:
+                        outputs.append(output)
+
                     if use_tqdm:
                         if isinstance(output, RequestOutput):
                             # Calculate tokens only for RequestOutput
                             assert output.prompt_token_ids is not None
                             total_in_toks += len(output.prompt_token_ids)
-                            in_spd = total_in_toks / pbar.format_dict["elapsed"]
+                            in_spd = (total_in_toks /
+                                      pbar.format_dict["elapsed"])
                             total_out_toks += sum(
                                 len(stp.token_ids) for stp in output.outputs)
                             out_spd = (total_out_toks /
@@ -960,10 +984,11 @@ class LLM:
 
         if use_tqdm:
             pbar.close()
-        # Sort the outputs by request ID.
-        # This is necessary because some requests may be finished earlier than
-        # its previous requests.
-        return sorted(outputs, key=lambda x: int(x.request_id))
+
+        if stream:
+            return None
+        else:
+            return sorted(outputs, key=lambda x: int(x.request_id))
 
     def _is_encoder_decoder_model(self):
         return self.llm_engine.is_encoder_decoder_model()
