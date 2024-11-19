@@ -25,6 +25,7 @@ class _Backend(enum.Enum):
     FLASHINFER = enum.auto()
     HPU_ATTN = enum.auto()
     PALLAS = enum.auto()
+    PALLAS_VLLM_V1 = enum.auto()
     IPEX = enum.auto()
     NO_ATTENTION = enum.auto()
 
@@ -140,6 +141,10 @@ def _cached_get_attn_backend(
         from vllm.v1.attention.backends.flash_attn import (  # noqa: F401
             FlashAttentionBackend as FlashAttentionBackendV1)
         return FlashAttentionBackendV1
+    if backend == _Backend.PALLAS_VLLM_V1:
+        from vllm.v1.attention.backends.pallas import (  # noqa: F401
+            PallasAttentionBackend as PallasAttentionBackendV1)
+        return PallasAttentionBackendV1
     if backend == _Backend.XFORMERS:
         logger.info("Using XFormers backend.")
         from vllm.attention.backends.xformers import (  # noqa: F401
@@ -232,8 +237,11 @@ def which_attn_to_use(head_size: int,
         return _Backend.IPEX
 
     if current_platform.is_tpu():
-        if selected_backend != _Backend.PALLAS:
+        if (selected_backend != _Backend.PALLAS
+                and selected_backend != _Backend.PALLAS_VLLM_V1):
             logger.info("Cannot use %s backend on TPU.", selected_backend)
+        if use_v1:
+            return _Backend.PALLAS_VLLM_V1
         return _Backend.PALLAS
 
     if current_platform.is_rocm():
