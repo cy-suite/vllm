@@ -311,7 +311,7 @@ class Scheduler:
         # simple and NOT fair. It can lead to starvation of some
         # LoRAs. This should be improved in the future.
         self.lora_config = lora_config
-
+        self.num_prefill_groups = 0
         version = "selfattn"
         if (self.scheduler_config.task == "embedding"
                 or self.cache_config.is_attention_free):
@@ -807,17 +807,17 @@ class Scheduler:
                                                       SequenceStatus.WAITING,
                                                       False, budget)
 
-            #Only preempt if priority inversion exists
+            # Only preempt if priority inversion exists
             while running_queue and self._get_priority(
                     running_queue[-1]) > self._get_priority(seq_group):
-                #Only preempt if waiting sequence cannot be allocated
+                # Only preempt if waiting sequence cannot be allocated
                 can_allocate = self.block_manager.can_allocate(seq_group)
                 if (num_new_tokens and can_allocate == AllocStatus.OK
                         and budget.can_schedule(num_new_tokens=num_new_tokens,
                                                 num_new_seqs=num_new_seqs)):
                     break
 
-                #Adjust budget to remove the victim sequence group
+                # Adjust budget to remove the victim sequence group
                 vseq_group = running_queue.pop()
                 num_running_tokens = self._get_num_new_tokens(
                     vseq_group, SequenceStatus.RUNNING, False, budget)
@@ -827,11 +827,11 @@ class Scheduler:
                 budget.subtract_num_seqs(vseq_group.request_id,
                                          num_running_seqs)
 
-                #Preempt out the victim sequence group
+                # Preempt out the victim sequence group
                 self._preempt(vseq_group, blocks_to_swap_out)
                 waiting_queue.appendleft(vseq_group)
                 force_preemption_count += 1
-            #Put the sequence back into the waiting queue
+            # Put the sequence back into the waiting queue
             waiting_queue.appendleft(seq_group)
 
         waiting_queue = deque(sorted(waiting_queue, key=self._get_priority))
@@ -1217,6 +1217,8 @@ class Scheduler:
         scheduler_start_time = time.perf_counter()
 
         scheduler_outputs: SchedulerOutputs = self._schedule()
+        self.num_prefill_groups = scheduler_outputs.num_prefill_groups
+
         now = time.time()
 
         if not self.cache_config.enable_prefix_caching:
@@ -1584,6 +1586,44 @@ class Scheduler:
 
         return self.scheduler_config.num_lookahead_slots
 
+    def _get_token_budget_for_request(self, budget: SchedulingBudget) -> int:
+        """When doing chunked prefill, calculate the token budget for a single
+        chunk. This dynamically scales the chunk size down as the number of
+        sequences that require prefilling increases. This ensures that a single
+        sequence with a very large prompt to prefill doesn't take the entire
+        remaining token budget, allowing other sequences to prefill and decode
+        concurrently."""
+
+        # Get the current remaining token budget
+        remaining_token_budget = budget.remaining_token_budget()
+        if remaining_token_budget < self.scheduler_config.min_chunk_size:
+            # Skip all calculations if there's no way to reduce the budget any
+            # further anyway
+            return remaining_token_budget
+
+        # First get the number of sequences that require prefill
+        prefilling_seqs = self.num_prefill_groups
+        prefilling_seqs += len(self.waiting)
+
+        # Get the current remaining token budget
+        remaining_token_budget = budget.remaining_token_budget()
+
+        if prefilling_seqs == 0:
+            # Return immediately if there are no sequences that require prefill
+            return remaining_token_budget
+
+        # calculate a chunk size that shares it evenly across sequences that
+        # need to prefill
+        chunk_size = int(remaining_token_budget / prefilling_seqs)
+        # Ensure the chunk size is at least the minimum configured by the
+        # user, to limit the number of requests doing prefill
+        chunk_size = max(chunk_size, self.scheduler_config.min_chunk_size)
+        # And cap that at our actual budget so we don't spend tokens we
+        # don't have.
+        chunk_size = min(remaining_token_budget, chunk_size)
+
+        return chunk_size
+
     def _get_num_new_tokens(self, seq_group: SequenceGroup,
                             status: SequenceStatus, enable_chunking: bool,
                             budget: SchedulingBudget) -> int:
@@ -1602,46 +1642,43 @@ class Scheduler:
         for seq in seqs:
             num_new_tokens += seq.get_num_new_tokens()
         assert num_new_tokens > 0
-        # Chunk if a running request cannot fit in the given budget.
+
+        if self.scheduler_config.is_multi_step:
+            # The current multi-step + chunked prefill capability does
+            # not actually support chunking prompts.
+            #
+            # Therefore, `num_new_tokens` is computed in the same fashion
+            # for both multi-step+chunked-prefill &
+            # multi-step+chunked-prefill+APC
+            #
+            # Prompts with more tokens than the current remaining budget
+            # are postponed to future scheduler steps
+            if num_new_tokens > self._get_prompt_limit(seq_group):
+                # If the seq_group is in prompt-stage, pass the
+                # num_new_tokens as-is so the caller can ignore
+                # the sequence.
+                pass
+            else:
+                num_new_tokens = 0 \
+                    if num_new_tokens > budget.remaining_token_budget() \
+                    else num_new_tokens
+
         # If number of seq > 1, it means it is doing beam search
         # in a decode phase. Do not chunk.
-        if enable_chunking and len(seqs) == 1:
-            remaining_token_budget = budget.remaining_token_budget()
-            if self.scheduler_config.is_multi_step:
-                # The current multi-step + chunked prefill capability does
-                # not actually support chunking prompts.
-                #
-                # Therefore, `num_new_tokens` is computed in the same fashion
-                # for both multi-step+chunked-prefill &
-                # multi-step+chunked-prefill+APC
-                #
-                # Prompts with more tokens than the current remaining budget
-                # are postponed to future scheduler steps
-                if num_new_tokens > self._get_prompt_limit(seq_group):
-                    # If the seq_group is in prompt-stage, pass the
-                    # num_new_tokens as-is so the caller can ignore
-                    # the sequence.
-                    pass
-                else:
-                    num_new_tokens = 0 \
-                        if num_new_tokens > remaining_token_budget \
-                        else num_new_tokens
-            elif self.cache_config.enable_prefix_caching:
+        elif enable_chunking and len(seqs) == 1:
+            # Get the budget for this chunk
+            chunk_size = self._get_token_budget_for_request(budget=budget)
+
+            if self.cache_config.enable_prefix_caching:
                 # When prefix caching is enabled, we always allocate
                 # the number of new tokens that is dividable by the block
                 # size to avoid partial block matching.
                 block_size = self.cache_config.block_size
-                remainder = budget.token_budget % block_size
-                if remainder != 0:
-                    raise ValueError("When enabling chunked prefill and "
-                                     "prefix caching, max_num_batched_tokens "
-                                     "(chunk size) must be dividable by "
-                                     "block size, but got chunk_size "
-                                     f"({budget.token_budget}) % block_size "
-                                     f"({block_size}) = {remainder}")
-                if remaining_token_budget < num_new_tokens:
-                    num_new_tokens = (remaining_token_budget //
-                                      block_size) * block_size
-            else:
-                num_new_tokens = min(num_new_tokens, remaining_token_budget)
+                # Set chunk size to the next lowest multiple of block size
+                # so we don't exceed our budget
+                chunk_size = (chunk_size // block_size) * block_size
+                # NB: In the case where num_new_tokens < chunk_size, this does
+                # not allocate a multiple of `block_size` tokens.
+
+            num_new_tokens = min(num_new_tokens, chunk_size)
         return num_new_tokens
