@@ -87,7 +87,7 @@ class XPUPlatform(Platform):
     def is_pin_memory_available(cls):
         logger.warning("Pin memory is not supported on XPU.")
         return False
-    
+
     @classmethod
     def get_current_memory_usage(cls,
                                  device: Optional[torch.types.Device] = None
