@@ -239,7 +239,10 @@ class Platform:
         return True
     
     @classmethod
-    def get_current_memory_usage(cls, device: Optional[torch.types.Device] = None) -> float:
+    def get_current_memory_usage(
+        cls,
+        device: Optional[torch.types.Device] = None
+    ) -> float:
         """
         Return the memory usage in bytes.
         """
