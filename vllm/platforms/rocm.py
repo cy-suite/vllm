@@ -110,3 +110,10 @@ class RocmPlatform(Platform):
                 "Using AWQ quantization with ROCm, but VLLM_USE_TRITON_AWQ"
                 " is not set, enabling VLLM_USE_TRITON_AWQ.")
         envs.VLLM_USE_TRITON_AWQ = True
+
+    @classmethod
+    def get_current_memory_usage(cls,
+                                 device: Optional[torch.types.Device] = None
+                                 ) -> float:
+        torch.cuda.reset_peak_memory_stats(device)
+        return torch.cuda.max_memory_allocated(device)
