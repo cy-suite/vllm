@@ -3,6 +3,9 @@ from typing import TYPE_CHECKING, Optional
 import torch
 
 from vllm.logger import init_logger
+from vllm.lora.punica_wrapper.punica_base import PunicaWrapperBase
+from vllm.lora.punica_wrapper.punica_hpu import PunicaWrapperHPU
+from vllm.utils import print_info_once
 
 from .interface import Platform, PlatformEnum, _Backend
 
@@ -58,3 +61,8 @@ class HpuPlatform(Platform):
     def is_pin_memory_available(cls):
         logger.warning("Pin memory is not supported on HPU.")
         return False
+
+    @classmethod
+    def get_punica_wrapper(cls, *args, **kwargs) -> PunicaWrapperBase:
+        print_info_once("Using PunicaWrapperHPU.")
+        return PunicaWrapperHPU(*args, **kwargs)

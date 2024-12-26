@@ -6,6 +6,9 @@ import torch
 
 import vllm.envs as envs
 from vllm.logger import init_logger
+from vllm.lora.punica_wrapper.punica_base import PunicaWrapperBase
+from vllm.lora.punica_wrapper.punica_gpu import PunicaWrapperGPU
+from vllm.utils import print_info_once
 
 from .interface import DeviceCapability, Platform, PlatformEnum, _Backend
 
@@ -110,3 +113,8 @@ class RocmPlatform(Platform):
                 "Using AWQ quantization with ROCm, but VLLM_USE_TRITON_AWQ"
                 " is not set, enabling VLLM_USE_TRITON_AWQ.")
         envs.VLLM_USE_TRITON_AWQ = True
+
+    @classmethod
+    def get_punica_wrapper(cls, *args, **kwargs) -> PunicaWrapperBase:
+        print_info_once("Using PunicaWrapperGPU.")
+        return PunicaWrapperGPU(*args, **kwargs)

@@ -15,6 +15,9 @@ from typing_extensions import ParamSpec
 import vllm._C  # noqa
 import vllm.envs as envs
 from vllm.logger import init_logger
+from vllm.lora.punica_wrapper.punica_base import PunicaWrapperBase
+from vllm.lora.punica_wrapper.punica_gpu import PunicaWrapperGPU
+from vllm.utils import print_info_once
 
 from .interface import DeviceCapability, Platform, PlatformEnum
 
@@ -140,6 +143,11 @@ class CudaPlatformBase(Platform):
         cache_config = vllm_config.cache_config
         if cache_config and cache_config.block_size is None:
             cache_config.block_size = 16
+
+    @classmethod
+    def get_punica_wrapper(cls, *args, **kwargs) -> PunicaWrapperBase:
+        print_info_once("Using PunicaWrapperGPU.")
+        return PunicaWrapperGPU(*args, **kwargs)
 
 
 # NVML utils
