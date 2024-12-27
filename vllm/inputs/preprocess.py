@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, Mapping, Optional, Union
+from typing import List, Mapping, Optional, Tuple, Union, cast
 
 from typing_extensions import assert_never
 
@@ -7,7 +7,9 @@ from vllm.config import ModelConfig
 from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
-from vllm.multimodal.processing import MultiModalDataDict, MultiModalInputsV2
+from vllm.multimodal.processing import (MultiModalDataDict,
+                                        MultiModalEncDecInputs,
+                                        MultiModalInputsV2)
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.transformers_utils.tokenizer_group import BaseTokenizerGroup
 from vllm.utils import print_info_once, print_warning_once
@@ -459,6 +461,40 @@ class InputPreprocessor:
             decoder=decoder_inputs,
         )
 
+    def _handle_multimodal_enc_dec_inputs(
+        self,
+        inputs: SingletonInputs,
+    ) -> Tuple[SingletonInputs, SingletonInputs]:
+        """
+        For encoder/decoder models only:
+        Separate Encoder/Decoder inputs from a MultiModalEncDecInputs
+        """
+        encoder_inputs: SingletonInputs
+        decoder_inputs: SingletonInputs
+        if inputs["type"] == "multimodal":
+            # Multimodal data inputs
+            assert ("encoder_prompt" in inputs
+                    and "encoder_prompt_token_ids" in inputs)
+            inputs = cast(MultiModalEncDecInputs, inputs)
+            encoder_inputs = token_inputs(
+                prompt=inputs["encoder_prompt"],
+                prompt_token_ids=inputs["encoder_prompt_token_ids"],
+            )
+            decoder_inputs = MultiModalInputsV2(
+                type="multimodal",
+                prompt=inputs["prompt"],
+                prompt_token_ids=inputs["prompt_token_ids"],
+                mm_kwargs=inputs["mm_kwargs"],
+                mm_placeholders=inputs["mm_placeholders"],
+            )
+        elif inputs["type"] == "token":
+            # Text-only inputs
+            encoder_inputs = token_inputs(prompt="", prompt_token_ids=[])
+            decoder_inputs = inputs
+        else:
+            raise AssertionError("This line should be unreachable.")
+        return encoder_inputs, decoder_inputs
+
     def _process_encoder_decoder_prompt(
         self,
         prompt: PromptType,
@@ -512,12 +548,18 @@ class InputPreprocessor:
                     request_id=request_id,
                 )
         else:
-            encoder_inputs = self._prompt_to_llm_inputs(
+            inputs = self._prompt_to_llm_inputs(
                 prompt,
                 request_id=request_id,
             )
+            if self.model_config.is_multimodal_model:
+                # Encoder-Decoder Multimodal model
+                encoder_inputs, decoder_inputs = (
+                    self._handle_multimodal_enc_dec_inputs(inputs))
+            else:
+                encoder_inputs = inputs
 
-            decoder_inputs = None
+                decoder_inputs = None
 
         return self._build_enc_dec_llm_inputs(encoder_inputs, decoder_inputs)
 
@@ -548,12 +590,18 @@ class InputPreprocessor:
                 encoder_inputs, decoder_inputs = await asyncio.gather(
                     encoder_task, decoder_task)
         else:
-            encoder_inputs = await self._prompt_to_llm_inputs_async(
+            inputs = await self._prompt_to_llm_inputs_async(
                 prompt,
                 request_id=request_id,
             )
+            if self._can_process_multimodal():
+                # Encoder-Decoder Multimodal model
+                encoder_inputs, decoder_inputs = (
+                    self._handle_multimodal_enc_dec_inputs(inputs))
+            else:
+                encoder_inputs = inputs
 
-            decoder_inputs = None
+                decoder_inputs = None
 
         return self._build_enc_dec_llm_inputs(encoder_inputs, decoder_inputs)
 
