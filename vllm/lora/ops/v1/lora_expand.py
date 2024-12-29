@@ -107,10 +107,11 @@ def _lora_expand(
     inputs: torch.Tensor,
     lora_b_weights: torch.Tensor,
     output_tensor: torch.Tensor,
-    token_indices_sorted_by_lora_ids: torch.Tensor,  # inputs.size(0)
-    num_tokens_per_lora: torch.Tensor,  # max-loras + 1
-    lora_token_start_loc: torch.Tensor,  # max-loras + 2
-    lora_ids: torch.Tensor,  # max-loras + 1
+    token_lora_mapping: torch.Tensor,
+    token_indices_sorted_by_lora_ids: torch.Tensor, # inputs.size(0)
+    num_tokens_per_lora: torch.Tensor, # max-loras + 1
+    lora_token_start_loc: torch.Tensor, # max-loras + 2
+    lora_ids: torch.Tensor, # max-loras + 1
     add_inputs: bool = False,
 ) -> None:
     """
@@ -157,8 +158,8 @@ def _lora_expand(
     M = inputs.size(0)
     N = lora_b_weights.size(-2)
     K = lora_b_weights.size(-1)
-    BLOCK_M = 16
-    BLOCK_N = 64
+    BLOCK_M = 32
+    BLOCK_N = 128
     BLOCK_K = 16
 
     NUM_M_CTAS = math.ceil(M / BLOCK_M)  # Each BLOCK_M is its own CTA
