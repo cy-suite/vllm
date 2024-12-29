@@ -3,7 +3,7 @@ Define LoRA adapter for model runner.
 """
 
 from contextlib import contextmanager
-from typing import Set, Tuple, Optional
+from typing import Set, Tuple
 
 import numpy as np
 import torch.nn as nn
@@ -127,9 +127,9 @@ class LoRAModelRunnerMixin:
             # __exit__ code
             self.lora_manager.remove_all_adapters()
 
-
     @contextmanager
-    def maybe_capture_model_with_lora(self, lora_config: LoRAConfig, batch_size: int):
+    def maybe_capture_model_with_lora(self, lora_config: LoRAConfig,
+                                      batch_size: int):
         if lora_config is None:
             yield
         else:
@@ -139,8 +139,7 @@ class LoRAModelRunnerMixin:
             prompt_lora_mapping = tuple([0] * batch_size)
             token_lora_mapping = tuple([0] * batch_size)
 
-            self._set_active_loras(prompt_lora_mapping,
-                                   token_lora_mapping,
+            self._set_active_loras(prompt_lora_mapping, token_lora_mapping,
                                    set())
             yield
 

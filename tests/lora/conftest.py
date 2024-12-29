@@ -76,6 +76,7 @@ def dist_init():
     yield
     cleanup_dist_env_and_memory(shutdown_ray=True)
 
+
 @contextmanager
 def _dist_init():
     temp_file = tempfile.mkstemp()[1]

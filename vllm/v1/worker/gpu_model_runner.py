@@ -118,7 +118,10 @@ class GPUModelRunner(LoRAModelRunnerMixin):
         # The batch sizes in the config are in descending order.
         self.cudagraph_batch_sizes = list(
             reversed(self.vllm_config.compilation_config.capture_sizes))
-        self.cudagraph_batch_sizes = [bs for bs in self.cudagraph_batch_sizes if bs <= self.scheduler_config.max_num_seqs]
+        self.cudagraph_batch_sizes = [
+            bs for bs in self.cudagraph_batch_sizes
+            if bs <= self.scheduler_config.max_num_seqs
+        ]
 
         # Persistent buffers for CUDA graphs.
         self.input_ids = torch.zeros(self.max_num_tokens,
@@ -737,7 +740,6 @@ class GPUModelRunner(LoRAModelRunnerMixin):
 
         with self.maybe_profile_with_lora(self.lora_config,
                                           num_scheduled_tokens):
-            print(f"running profile code ...")
             # Trigger compilation for general shape.
             hidden_states = self._dummy_run(self.model, self.max_num_tokens,
                                             dummy_kv_caches)
@@ -765,8 +767,8 @@ class GPUModelRunner(LoRAModelRunnerMixin):
         with graph_capture():
             for num_tokens in reversed(self.cudagraph_batch_sizes):
                 print(f"running capture model for {num_tokens}...")
-                with self.maybe_capture_model_with_lora(self.lora_config,
-                                                        num_tokens):
+                with self.maybe_capture_model_with_lora(
+                        self.lora_config, num_tokens):
                     for _ in range(self.vllm_config.compilation_config.
                                    cudagraph_num_of_warmups):
                         self._dummy_run(self.model, num_tokens, self.kv_caches)

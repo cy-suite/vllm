@@ -1,10 +1,7 @@
 import random
-from copy import deepcopy
-from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import torch
-import torch.nn.functional as F
 
 from vllm.config import LoRAConfig
 # yapf conflicts with isort for this block
@@ -14,17 +11,17 @@ from vllm.lora.layers import (LoRAMapping,
                               VocabParallelEmbeddingWithLoRA)
 # yapf: enable
 from vllm.lora.punica_wrapper import get_punica_wrapper
-from vllm.model_executor.utils import set_random_seed
 
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     VocabParallelEmbedding)
 
-from vllm.lora.models import (LongContextLoRAContext, LoRALayerWeights,
-                              PackedLoRALayerWeights)
+from vllm.lora.models import (LoRALayerWeights, PackedLoRALayerWeights)
 
 from utils import DummyLoRAManager
-from vllm.distributed.parallel_state import ensure_model_parallel_initialized, init_distributed_environment
+from vllm.distributed.parallel_state import (ensure_model_parallel_initialized,
+                                             init_distributed_environment)
 from conftest import _dist_init
+
 
 def get_random_id_to_index(num_loras: int,
                            num_slots: int,
@@ -52,6 +49,7 @@ def get_random_id_to_index(num_loras: int,
         print(f"Created lora_id_to_index mapping: {slots}.")
 
     return slots
+
 
 def populate_loras(
     id_to_index: List[Optional[int]],
@@ -115,6 +113,7 @@ def populate_loras(
 
     return lora_dict, sublora_dict
 
+
 def create_random_inputs(
     active_lora_ids: List[int],
     num_inputs: int,
@@ -163,7 +162,8 @@ num_loras = 4
 vocab_size = 512
 is_prefill = True
 max_loras = 8
-device="cuda:0"
+device = "cuda:0"
+
 
 def custom_pass(graph: torch.fx.Graph) -> torch.fx.Graph:
     print("Pre-pass:")
@@ -172,7 +172,8 @@ def custom_pass(graph: torch.fx.Graph) -> torch.fx.Graph:
     return graph
 
 
-def custom_backend(graph: torch.fx.GraphModule, example_inputs: List[torch.Tensor]):
+def custom_backend(graph: torch.fx.GraphModule,
+                   example_inputs: List[torch.Tensor]):
     print("Graph entering custom_backend:")
     print(graph.print_readable())
     from torch._inductor import config
@@ -181,6 +182,7 @@ def custom_backend(graph: torch.fx.GraphModule, example_inputs: List[torch.Tenso
     current_config['post_grad_custom_post_pass'] = custom_pass
     return compile_fx(graph, example_inputs, config_patches=current_config)
 
+
 @torch.inference_mode()
 def test_embeddings() -> None:
 
@@ -188,7 +190,7 @@ def test_embeddings() -> None:
     torch.set_default_device(device)
 
     init_distributed_environment(1, 0)
-    ensure_model_parallel_initialized(1,1)
+    ensure_model_parallel_initialized(1, 1)
 
     max_loras = 8
     punica_wrapper = get_punica_wrapper(8192, 256, device)
@@ -221,22 +223,22 @@ def test_embeddings() -> None:
         input_size=(200, ),
         input_range=(1, vocab_size),
         device=device)
-    lora_mapping = LoRAMapping(index_mapping,
-                               prompt_mapping,
-                               is_prefill=True)
+    lora_mapping = LoRAMapping(index_mapping, prompt_mapping, is_prefill=True)
     punica_wrapper.update_metadata(lora_mapping, id_to_index, max_loras,
                                    vocab_size,
                                    lora_config.lora_extra_vocab_size)
 
-    lora_embedding_compiled = torch.compile(lora_embedding, backend=custom_backend)
+    lora_embedding_compiled = torch.compile(lora_embedding,
+                                            backend=custom_backend)
 
     embedding_compiled = torch.compile(embedding, backend=custom_backend)
 
     input = torch.cat(inputs)
     torch._dynamo.mark_dynamic(input, 0)
 
-    lr = embedding_compiled(input)
-    lora_result = lora_embedding_compiled(input)
+    embedding_compiled(input)
+    lora_embedding_compiled(input)
+
 
 if __name__ == '__main__':
     with _dist_init():

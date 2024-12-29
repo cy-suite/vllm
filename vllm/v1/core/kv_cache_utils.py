@@ -167,10 +167,10 @@ class FreeKVCacheBlockQueue:
 def generate_block_hash_extra_keys_for_mm(
         request: Request, start_token_idx: int, end_token_idx: int,
         start_mm_idx: int) -> Tuple[Optional[List[Any]], int]:
-    """Generate extra keys related to MultiModal request for block hash computation. 
-    For multi-modal inputs, the extra keys are (mm_hash, start_offset) that
-    indicate a mm input contained in the block and its starting offset in
-    the block tokens.
+    """Generate extra keys related to MultiModal request for block hash
+    computation. For multi-modal inputs, the extra keys are
+    (mm_hash, start_offset) that indicate a mm input contained in the
+    block and its starting offset in the block tokens.
     
     Args:
         request: The request object.
@@ -231,6 +231,7 @@ def generate_block_hash_extra_keys_for_mm(
             break
     return extra_keys, curr_mm_idx
 
+
 def generate_block_hash_extra_keys_for_lora(
         request: Request) -> Optional[List[int]]:
     """Generate extra keys related to LoRA for block hash computation.
@@ -245,6 +246,7 @@ def generate_block_hash_extra_keys_for_lora(
     if not request.lora_request:
         return None
     return [request.lora_request.lora_int_id]
+
 
 def generate_block_hash_extra_keys(
         request: Request, start_token_idx: int, end_token_idx: int,
@@ -262,8 +264,10 @@ def generate_block_hash_extra_keys(
         A tuple of extra keys and the next multi-modal index.
     """
     mm_extra_keys: Optional[List[Any]]
-    mm_extra_keys, new_start_mm_idx = generate_block_hash_extra_keys_for_mm(request, start_token_idx, end_token_idx, start_mm_idx)
-    lora_extra_keys: Optional[List[int]] = generate_block_hash_extra_keys_for_lora(request)
+    mm_extra_keys, new_start_mm_idx = generate_block_hash_extra_keys_for_mm(
+        request, start_token_idx, end_token_idx, start_mm_idx)
+    lora_extra_keys: Optional[
+        List[int]] = generate_block_hash_extra_keys_for_lora(request)
 
     extra_keys: List[Any] = []
     if mm_extra_keys:
@@ -275,6 +279,7 @@ def generate_block_hash_extra_keys(
         return None, new_start_mm_idx
 
     return tuple(extra_keys), new_start_mm_idx
+
 
 def hash_block_tokens(
         parent_block_hash: Optional[int],

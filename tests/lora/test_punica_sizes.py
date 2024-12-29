@@ -385,6 +385,7 @@ def test_punica_expand_nslices(
         slice_offset += hidden_size
     assert_close(our_outputs, ref_outputs)
 
+
 @pytest.mark.parametrize("batches", BATCHES)
 @pytest.mark.parametrize("num_loras", NUM_LORA)
 @pytest.mark.parametrize("rank", MAX_RANKS)
@@ -430,16 +431,16 @@ def test_v1_shrink_expand(
         device,
     )
 
-    v1_meta: V1KernelMeta = V1KernelMeta.make(max_loras = num_loras, max_num_tokens = seq_length * batches, device=device)
+    v1_meta: V1KernelMeta = V1KernelMeta.make(max_loras=num_loras,
+                                              max_num_tokens=seq_length *
+                                              batches,
+                                              device=device)
     v1_meta.reset()
     v1_meta.prepare_tensors(token_lora_mapping)
 
     if op_type == "shrink":
-        lora_shrink(inputs_tensor,
-                    lora_weights,
-                    our_out_tensor,
-                    *v1_meta.meta_args,
-                    scaling )
+        lora_shrink(inputs_tensor, lora_weights, our_out_tensor,
+                    *v1_meta.meta_args, scaling)
     else:
         lora_expand(inputs_tensor,
                     lora_weights,
@@ -506,7 +507,10 @@ def test_v1_expand_nslices(
         device,
     )
 
-    v1_meta: V1KernelMeta = V1KernelMeta.make(max_loras = num_loras, max_num_tokens = seq_length * batches, device=device)
+    v1_meta: V1KernelMeta = V1KernelMeta.make(max_loras=num_loras,
+                                              max_num_tokens=seq_length *
+                                              batches,
+                                              device=device)
     v1_meta.reset()
     v1_meta.prepare_tensors(token_lora_mapping)
 
@@ -514,12 +518,12 @@ def test_v1_expand_nslices(
     for index in range(nslices):
         lora_weights = lora_weights_lst[index]
         lora_expand_slice(inputs_tensor,
-                        lora_weights,
-                        our_outputs,
-                        *v1_meta.meta_args,
-                        slice_offset,
-                        hidden_size,
-                        add_inputs=True)
+                          lora_weights,
+                          our_outputs,
+                          *v1_meta.meta_args,
+                          slice_offset,
+                          hidden_size,
+                          add_inputs=True)
 
         ref_torch_groupgemm(
             ref_outputs[:, slice_offset:slice_offset + hidden_size],

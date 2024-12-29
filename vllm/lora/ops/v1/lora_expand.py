@@ -4,6 +4,7 @@ import triton.language as tl
 import math
 from vllm.utils import direct_register_custom_op
 
+
 @triton.jit
 def _lora_expand_kernel(
     input_ptr,
@@ -18,7 +19,7 @@ def _lora_expand_kernel(
     lora_ids,
     xm_stride,
     xk_stride,  # 1
-    l0_stride, # hidden_size * max rank
+    l0_stride,  # hidden_size * max rank
     lora_n_stride,
     lora_k_stride,
     cm_stride,
@@ -31,34 +32,35 @@ def _lora_expand_kernel(
     BLOCK_K: tl.constexpr,
 ):
 
-    NUM_M_CTAS = tl.cdiv(M, BLOCK_M) 
+    NUM_M_CTAS = tl.cdiv(M, BLOCK_M)
     NUM_N_CTAS = tl.cdiv(N, BLOCK_N)
 
     pid = tl.program_id(0)
-    l = pid // (NUM_M_CTAS * NUM_N_CTAS)
+    lora_idx = pid // (NUM_M_CTAS * NUM_N_CTAS)
     cta_n = (pid // NUM_M_CTAS) % NUM_N_CTAS
     cta_m = pid % NUM_M_CTAS
 
-    lora_id = tl.load(lora_ids + l)
+    lora_id = tl.load(lora_ids + lora_idx)
     if lora_id == -1:
         # early exit for the no-lora case.
         return
 
     # lora m indices offsets
-    lora_m_indices_start = tl.load(lora_token_start_loc + l)
-    lora_m_size = tl.load(num_tokens_per_lora + l) 
+    lora_m_indices_start = tl.load(lora_token_start_loc + lora_idx)
+    lora_m_size = tl.load(num_tokens_per_lora + lora_idx)
 
-    cta_m_offset = cta_m * BLOCK_M 
+    cta_m_offset = cta_m * BLOCK_M
     if cta_m_offset >= lora_m_size:
         # early exit CTA
         return
 
-    cta_lora_seq_indices = token_indices_sorted_by_lora_ids + lora_m_indices_start + cta_m_offset
+    cta_lora_seq_indices = (token_indices_sorted_by_lora_ids +
+                            lora_m_indices_start + cta_m_offset)
     cta_m_size = min(BLOCK_M, lora_m_size - cta_m_offset)
 
     offset_k = tl.arange(0, BLOCK_K)
 
-    offset_rm = tl.arange(0, BLOCK_M) % cta_m_size 
+    offset_rm = tl.arange(0, BLOCK_M) % cta_m_size
     rm = tl.load(cta_lora_seq_indices + offset_rm)
     a_ptr = input_ptr + rm[:, None] * xm_stride + offset_k[None, :] * xk_stride
 
@@ -88,7 +90,6 @@ def _lora_expand_kernel(
         a_ptr += BLOCK_K * xk_stride
         b_ptr += BLOCK_K * lora_k_stride
 
-
     tiled_c = accumulator.to(lora_ptr.dtype.element_ty)
     offset_cm = tl.arange(0, BLOCK_M)
     offset_cn = tl.arange(0, BLOCK_N) + cta_n * BLOCK_N
@@ -100,15 +101,16 @@ def _lora_expand_kernel(
         tiled_c += tiled_out
     tl.store(c_ptr, tiled_c, mask=c_mask)
 
+
 @torch.inference_mode()
 def _lora_expand(
     inputs: torch.Tensor,
     lora_b_weights: torch.Tensor,
     output_tensor: torch.Tensor,
-    token_indices_sorted_by_lora_ids: torch.Tensor, # inputs.size(0)
-    num_tokens_per_lora: torch.Tensor, # max-loras + 1
-    lora_token_start_loc: torch.Tensor, # max-loras + 2
-    lora_ids: torch.Tensor, # max-loras + 1
+    token_indices_sorted_by_lora_ids: torch.Tensor,  # inputs.size(0)
+    num_tokens_per_lora: torch.Tensor,  # max-loras + 1
+    lora_token_start_loc: torch.Tensor,  # max-loras + 2
+    lora_ids: torch.Tensor,  # max-loras + 1
     add_inputs: bool = False,
 ) -> None:
     """
@@ -116,12 +118,14 @@ def _lora_expand(
         inputs (torch.Tensor): input tensor
         lora_b_weights (torch.Tensor): lora'b weight
         output_tensor (torch.Tensor): output tensor
-        token_indices_sorted_by_lora_ids: Row/Token indices from the A matrix grouped by LoRA IDs.
-        num_tokens_per_lora: num_tokens_per_lora[i] is the number of tokens that are to be
-            processed by LoRA ID lora_ids[i] 
-        lora_token_start_loc: A cumulative sum of num_tokens_per_lora. lora_token_start_loc[0] 
-            is always 0 so that lora_token_start_loc[i], along with num_tokens_per_lora[i]
-            identifies the the region in token_indices_sorted_by_lora_ids that LoRA lora_ids[i]
+        token_indices_sorted_by_lora_ids: Row/Token indices from the A matrix
+            grouped by LoRA IDs.
+        num_tokens_per_lora: num_tokens_per_lora[i] is the number of tokens
+            that are to be processed by LoRA ID lora_ids[i] 
+        lora_token_start_loc: A cumulative sum of num_tokens_per_lora.
+            lora_token_start_loc[0] is always 0 so that lora_token_start_loc[i],
+            along with num_tokens_per_lora[i] identifies the the region in
+            token_indices_sorted_by_lora_ids that LoRA lora_ids[i]
             should process.
         lora_ids: LoRA ids to process.
         add_inputs (bool, optional): Defaults to False, adds the final lora 
@@ -159,7 +163,7 @@ def _lora_expand(
 
     NUM_M_CTAS = math.ceil(M / BLOCK_M)  # Each BLOCK_M is its own CTA
     NUM_N_CTAS = math.ceil(N / BLOCK_N)
-    MAX_LORAS = lora_ids.size(0)  
+    MAX_LORAS = lora_ids.size(0)
 
     EVEN_K = K % BLOCK_K == 0
     ADD_INPUTS = add_inputs
@@ -175,12 +179,10 @@ def _lora_expand(
     l0_stride = lora_b_weights.stride(0)
     lora_n_stride = lora_b_weights.stride(1)
     lora_k_stride = lora_b_weights.stride(2)
-    cm_stride =  output_tensor.stride(0)
+    cm_stride = output_tensor.stride(0)
     cn_stride = output_tensor.stride(1)
 
-    grid = (
-        MAX_LORAS * NUM_M_CTAS * NUM_N_CTAS,
-    )
+    grid = (MAX_LORAS * NUM_M_CTAS * NUM_N_CTAS, )
 
     _lora_expand_kernel[grid](
         inputs,
@@ -209,6 +211,7 @@ def _lora_expand(
     )
     return
 
+
 def lora_expand_fake(
     inputs: torch.Tensor,
     lora_b_weights: torch.Tensor,
@@ -220,6 +223,7 @@ def lora_expand_fake(
     add_inputs: bool = False,
 ) -> None:
     return
+
 
 try:
     direct_register_custom_op(

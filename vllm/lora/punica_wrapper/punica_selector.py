@@ -9,7 +9,7 @@ def get_punica_wrapper(*args, **kwargs) -> PunicaWrapperBase:
     if current_platform.is_cuda_alike():
         # Lazy import to avoid ImportError
         if envs.VLLM_USE_V1:
-            from vllm.lora.punica_wrapper.v1_gpu import V1LoRAGPU 
+            from vllm.lora.punica_wrapper.v1_gpu import V1LoRAGPU
             print_info_once("Using V1LoRAGPU.")
             return V1LoRAGPU(*args, **kwargs)
         else:

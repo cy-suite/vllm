@@ -192,8 +192,10 @@ class PunicaWrapperBase(PunicaWrapperABC):
             self.device,
             long_lora_context,
         )
-        self._token_lora_indices[:base_indices.size(0)].copy_(base_indices, non_blocking=True)
-        self._sampler_indices[:sampler_indices.size(0)].copy_(sampler_indices, non_blocking=True)
+        self._token_lora_indices[:base_indices.size(0)].copy_(
+            base_indices, non_blocking=True)
+        self._sampler_indices[:sampler_indices.size(0)].copy_(
+            sampler_indices, non_blocking=True)
         self._sampler_indices_padded[:sampler_indices_padded.size(0)].copy_(
             sampler_indices_padded, non_blocking=True)
         self._embeddings_indices[:embeddings_indices.
@@ -329,8 +331,8 @@ class PunicaWrapperBase(PunicaWrapperABC):
             **kwargs):
 
         self.update_base_metadata(mapping, lora_index_to_id, max_loras,
-                                   vocab_size, extra_vocab_size,
-                                   long_lora_context)
+                                  vocab_size, extra_vocab_size,
+                                  long_lora_context)
         if mapping.is_prefill:
             # Update metadata required for prefill-related operators.
             self._update_prefill_metada(self.token_lora_indices)

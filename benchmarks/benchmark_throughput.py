@@ -27,8 +27,9 @@ from vllm.transformers_utils.tokenizer import AnyTokenizer, get_lora_tokenizer
 from vllm.utils import FlexibleArgumentParser, merge_async_iterators
 from vllm.outputs import RequestOutput
 
-SAMPLING_TEMPERATURE=0.0
-SAMPLING_TOP_P=1.0
+SAMPLING_TEMPERATURE = 0.0
+SAMPLING_TOP_P = 1.0
+
 
 @dataclasses.dataclass
 class SampleRequest:
@@ -198,9 +199,9 @@ def run_vllm(
     if not use_beam_search:
         start = time.perf_counter()
         outputs = llm.generate(prompts,
-                     sampling_params,
-                     lora_request=lora_requests,
-                     use_tqdm=True)
+                               sampling_params,
+                               lora_request=lora_requests,
+                               use_tqdm=True)
         end = time.perf_counter()
     else:
         assert lora_requests is None, "BeamSearch API does not support LoRA"
@@ -412,8 +413,8 @@ def main(args: argparse.Namespace):
                 ))
         else:
             elapsed_time, outputs = run_vllm(requests, args.n,
-                                    EngineArgs.from_cli_args(args))
-        
+                                             EngineArgs.from_cli_args(args))
+
         if args.pickle_outputs:
             print("Pickling request outputs : ")
             with open("outputs.pkl", "wb+") as f:

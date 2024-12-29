@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Callable, Optional, Tuple, Union, final, List
+from typing import TYPE_CHECKING, Optional, Tuple, Union, final, List
 from dataclasses import dataclass
 
 import torch
@@ -10,13 +10,13 @@ if HAS_TRITON:
     from vllm.lora.ops.v1.lora_expand import lora_expand
     from vllm.lora.ops.v1.lora_shrink import lora_shrink
     from vllm.lora.ops.v1.lora_expand_slice import lora_expand_slice
-    #from vllm.lora.ops.v1.lora_expand_slices import lora_expand_slices
 
 from .punica_base import PunicaWrapperBase
 
 if TYPE_CHECKING:
     # avoid circuit import
     from vllm.lora.models import LongContextLoRAContext
+
 
 @dataclass
 class V1KernelMeta:
@@ -26,7 +26,8 @@ class V1KernelMeta:
     lora_token_start_loc: torch.Tensor
 
     @staticmethod
-    def make(max_loras: int, max_num_tokens: int, device: torch.device) -> "V1KernelMeta":
+    def make(max_loras: int, max_num_tokens: int,
+             device: torch.device) -> "V1KernelMeta":
         token_indices_sorted_by_lora_ids = torch.empty(max_num_tokens,
                                                        dtype=torch.int32,
                                                        device=device)
@@ -36,7 +37,7 @@ class V1KernelMeta:
         # is a possibility.
         active_lora_ids = torch.empty(max_loras + 1,
                                       dtype=torch.int32,
-                                      device=device) 
+                                      device=device)
 
         # using running example, [3, 10, 5, 2] is a possibility.
         num_tokens_per_lora = torch.zeros(max_loras + 1,
@@ -48,11 +49,12 @@ class V1KernelMeta:
         # can be [0, 3, 13, 18, 20].
         lora_token_start_loc = torch.zeros(max_loras + 2,
                                            dtype=torch.int32,
-                                           device=device) 
-        return V1KernelMeta(token_indices_sorted_by_lora_ids=token_indices_sorted_by_lora_ids,
-                            active_lora_ids = active_lora_ids,
-                            num_tokens_per_lora=num_tokens_per_lora,
-                            lora_token_start_loc = lora_token_start_loc)
+                                           device=device)
+        return V1KernelMeta(
+            token_indices_sorted_by_lora_ids=token_indices_sorted_by_lora_ids,
+            active_lora_ids=active_lora_ids,
+            num_tokens_per_lora=num_tokens_per_lora,
+            lora_token_start_loc=lora_token_start_loc)
 
     def reset(self):
         self.active_lora_ids.fill_(-1)
@@ -62,28 +64,33 @@ class V1KernelMeta:
     def prepare_tensors(self, token_lora_mapping: torch.Tensor) -> None:
         num_tokens = token_lora_mapping.size(0)
         # token_indices_sorted_by_lora_ids
-        _, token_indices_sorted_by_lora_ids =  torch.sort(token_lora_mapping, stable=True)
+        _, token_indices_sorted_by_lora_ids = torch.sort(token_lora_mapping,
+                                                         stable=True)
         # start gpu transfer
-        self.token_indices_sorted_by_lora_ids[:num_tokens].copy_(token_indices_sorted_by_lora_ids,
-                                                                non_blocking=True)
-        
+        self.token_indices_sorted_by_lora_ids[:num_tokens].copy_(
+            token_indices_sorted_by_lora_ids, non_blocking=True)
+
         # active_lora_ids, num_tokens_per_lora
         lora_ids, num_tokens_per_lora = torch.unique(token_lora_mapping,
-                                                   sorted=False,
-                                                   return_counts=True) 
-        self.active_lora_ids[:lora_ids.size(0)].copy_(lora_ids, non_blocking=True) 
-        self.num_tokens_per_lora[:num_tokens_per_lora.size(0)].copy_(num_tokens_per_lora, non_blocking=True)
+                                                     sorted=False,
+                                                     return_counts=True)
+        self.active_lora_ids[:lora_ids.size(0)].copy_(lora_ids,
+                                                      non_blocking=True)
+        self.num_tokens_per_lora[:num_tokens_per_lora.size(0)].copy_(
+            num_tokens_per_lora, non_blocking=True)
 
         # lora_token_start_loc
         lora_token_start_loc = torch.cumsum(num_tokens_per_lora, dim=0)
-        self.lora_token_start_loc[1: 1 + lora_token_start_loc.size(0)].copy_(lora_token_start_loc,
-                                                                             non_blocking=True)
+        self.lora_token_start_loc[1:1 + lora_token_start_loc.size(0)].copy_(
+            lora_token_start_loc, non_blocking=True)
 
-    def meta_args(self, num_tokens: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def meta_args(
+        self, num_tokens: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         return (self.token_indices_sorted_by_lora_ids[:num_tokens],
-                self.num_tokens_per_lora,
-                self.lora_token_start_loc,
+                self.num_tokens_per_lora, self.lora_token_start_loc,
                 self.active_lora_ids)
+
 
 @final
 class V1LoRAGPU(PunicaWrapperBase):
@@ -95,14 +102,17 @@ class V1LoRAGPU(PunicaWrapperBase):
         PunicaWrapperBase (_type_): _description_
     """
 
-
     def __init__(self, max_num_batched_tokens: int, max_batches: int,
                  device: Union[torch.device, str], **kwargs):
         PunicaWrapperBase.__init__(self, max_num_batched_tokens, max_batches,
                                    device)
         self.max_loras = kwargs['max_loras']
-        self.token_mapping_v1_meta = V1KernelMeta.make(self.max_loras, max_num_batched_tokens, device=device) 
-        self.prompt_mapping_v1_meta = V1KernelMeta.make(self.max_loras, max_batches, device=device)
+        self.token_mapping_v1_meta = V1KernelMeta.make(self.max_loras,
+                                                       max_num_batched_tokens,
+                                                       device=device)
+        self.prompt_mapping_v1_meta = V1KernelMeta.make(self.max_loras,
+                                                        max_batches,
+                                                        device=device)
 
     def update_metadata(
             self,
@@ -119,14 +129,14 @@ class V1LoRAGPU(PunicaWrapperBase):
         #if self.no_lora:
         #    # no update required
         #    return
-        num_tokens: int = len(mapping.index_mapping)
+        #num_tokens: int = len(mapping.index_mapping)
 
         self.token_mapping_v1_meta.reset()
         self.prompt_mapping_v1_meta.reset()
 
         self.update_base_metadata(mapping, lora_index_to_id, max_loras,
-                                   vocab_size, extra_vocab_size,
-                                   long_lora_context)
+                                  vocab_size, extra_vocab_size,
+                                  long_lora_context)
 
         self.token_mapping_v1_meta.prepare_tensors(self.token_lora_indices)
         self.prompt_mapping_v1_meta.prepare_tensors(self.sampler_indices)
@@ -138,11 +148,8 @@ class V1LoRAGPU(PunicaWrapperBase):
         w_t_all: torch.Tensor,
         scale: float,
     ):
-        lora_shrink(x,
-                    w_t_all,
-                    y,
-                    *self.token_mapping_v1_meta.meta_args(x.size(0)),
-                    scale)
+        lora_shrink(x, w_t_all, y,
+                    *self.token_mapping_v1_meta.meta_args(x.size(0)), scale)
 
     def _expand(
         self,
@@ -169,10 +176,8 @@ class V1LoRAGPU(PunicaWrapperBase):
             return
 
         lora_expand_slice(x, w_t_all, y,
-                    *self.token_mapping_v1_meta.meta_args(x.size(0)),
-                    y_offset,
-                    y_slice_size,
-                    add_inputs)
+                          *self.token_mapping_v1_meta.meta_args(x.size(0)),
+                          y_offset, y_slice_size, add_inputs)
 
     def _apply_expand(
         self,
@@ -264,8 +269,9 @@ class V1LoRAGPU(PunicaWrapperBase):
         y = y.view(-1, y.size(-1))
         offset_left = offset_start
         if lora_bias_stacked is not None:
-            self._apply_bias(self._token_lora_indices[:x.size(0)], y, output_slices,
-                             lora_bias_stacked)
+            assert isinstance(x, torch.Tensor)
+            self._apply_bias(self._token_lora_indices[:x.size(0)], y,
+                             output_slices, lora_bias_stacked)
         for slice_idx in range(len(lora_b_stacked)):
             self._apply_expand(
                 y,
@@ -337,8 +343,8 @@ class V1LoRAGPU(PunicaWrapperBase):
         assert len(lora_a_stacked) == len(lora_b_stacked) == len(output_slices)
         if lora_bias_stacked is not None:
             assert len(lora_bias_stacked) == len(output_slices)
-            y = self._apply_bias(self._token_lora_indices[:x.size(0)], y, output_slices,
-                                 lora_bias_stacked)
+            y = self._apply_bias(self._token_lora_indices[:x.size(0)], y,
+                                 output_slices, lora_bias_stacked)
 
         if buffer is None:
             r = lora_b_stacked[0].size(-1)
@@ -392,8 +398,11 @@ class V1LoRAGPU(PunicaWrapperBase):
                                  dtype=torch.float32,
                                  device=x.device)
 
-        lora_shrink(x, lora_a_stacked, buffer, *self.prompt_mapping_v1_meta.meta_args(x.size(0)), scale)
-        lora_expand(buffer, lora_b_stacked, y,
+        lora_shrink(x, lora_a_stacked, buffer,
+                    *self.prompt_mapping_v1_meta.meta_args(x.size(0)), scale)
+        lora_expand(buffer,
+                    lora_b_stacked,
+                    y,
                     *self.prompt_mapping_v1_meta.meta_args(x.size(0)),
                     add_inputs=True)
 
