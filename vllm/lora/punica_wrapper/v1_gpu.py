@@ -119,9 +119,6 @@ class V1LoRAGPU(PunicaWrapperBase):
         #if self.no_lora:
         #    # no update required
         #    return
-
-        print (f"lora update metadata ...")
-
         num_tokens: int = len(mapping.index_mapping)
 
         self.token_mapping_v1_meta.reset()
