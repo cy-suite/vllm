@@ -440,12 +440,12 @@ def test_v1_shrink_expand(
 
     if op_type == "shrink":
         lora_shrink(inputs_tensor, lora_weights, our_out_tensor,
-                    *v1_meta.meta_args, scaling)
+                    *v1_meta.meta_args(inputs_tensor.size(0)), scaling)
     else:
         lora_expand(inputs_tensor,
                     lora_weights,
                     our_out_tensor,
-                    *v1_meta.meta_args,
+                    *v1_meta.meta_args(inputs_tensor.size(0)),
                     add_inputs=True)
 
     ref_torch_groupgemm(
@@ -520,7 +520,7 @@ def test_v1_expand_nslices(
         lora_expand_slice(inputs_tensor,
                           lora_weights,
                           our_outputs,
-                          *v1_meta.meta_args,
+                          *v1_meta.meta_args(inputs_tensor.size(0)),
                           slice_offset,
                           hidden_size,
                           add_inputs=True)
