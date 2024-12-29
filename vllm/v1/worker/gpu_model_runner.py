@@ -118,6 +118,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
         # The batch sizes in the config are in descending order.
         self.cudagraph_batch_sizes = list(
             reversed(self.vllm_config.compilation_config.capture_sizes))
+        self.cudagraph_batch_sizes = [bs for bs in self.cudagraph_batch_sizes if bs <= self.scheduler_config.max_num_seqs]
 
         # Persistent buffers for CUDA graphs.
         self.input_ids = torch.zeros(self.max_num_tokens,
