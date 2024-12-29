@@ -3,46 +3,47 @@ import triton
 import triton.language as tl
 import math
 from vllm.utils import direct_register_custom_op
+from vllm.lora.ops.bgmv_shrink import bgmv_shrink
 
 
 @triton.jit
 def _lora_shrink_kernel(
-    input_ptr,
-    lora_ptr,
-    out_ptr,
-    N,
-    K,
-    token_indices_sorted_by_lora_ids,
-    num_tokens_per_lora,
-    lora_token_start_loc,
-    lora_ids,
-    scaling,
-    xm_stride,
-    xk_stride,
-    l0_stride,
-    lora_k_stride,
-    lora_n_stride,
-    cm_stride,
-    cn_stride,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    BLOCK_K: tl.constexpr,
-    EVEN_K: tl.constexpr,
-    SPLIT_K: tl.constexpr,
-    NUM_M_CTAS: tl.constexpr,
-    NUM_N_CTAS: tl.constexpr,
-):
-
-    pid = tl.program_id(0)
-    lora_idx = pid // (NUM_M_CTAS * NUM_N_CTAS)
-    cta_n = (pid // NUM_M_CTAS) % NUM_N_CTAS
-    cta_m = pid % NUM_M_CTAS
-    cta_sk = tl.program_id(1)
-
+        input_ptr,
+        lora_ptr,
+        out_ptr,
+        N,
+        K,
+        token_indices_sorted_by_lora_ids,
+        num_tokens_per_lora,
+        lora_token_start_loc,
+        lora_ids,
+        scaling,
+        xm_stride,
+        xk_stride,
+        l0_stride,
+        lora_k_stride,
+        lora_n_stride,
+        cm_stride,
+        cn_stride,
+        BLOCK_M : tl.constexpr,
+        BLOCK_N : tl.constexpr,
+        BLOCK_K : tl.constexpr,
+        EVEN_K : tl.constexpr,
+        SPLIT_K : tl.constexpr,
+        SMALL_BLOCK_M: tl.constexpr,
+        NUM_M_CTAS : tl.constexpr,
+        NUM_N_CTAS : tl.constexpr,
+    ):
+    lora_idx = tl.program_id(1)
     lora_id = tl.load(lora_ids + lora_idx)
     if lora_id == -1:
         # early exit for the no-lora case.
         return
+
+    pid = tl.program_id(0)
+    cta_sk = pid // (NUM_M_CTAS * NUM_N_CTAS)
+    cta_n = (pid // NUM_M_CTAS) % NUM_N_CTAS
+    cta_m = pid % NUM_M_CTAS
 
     # lora m indices offsets
     lora_m_indices_start = tl.load(lora_token_start_loc + lora_idx)
@@ -83,9 +84,13 @@ def _lora_shrink_kernel(
             a_mask = offset_k[None, :] < K
             a_tile = tl.load(a_ptr, mask=a_mask, other=0.0)
 
-        # TODO (varun) : When a_tile and b_tile are float16s the output is also
-        # float16. this can lead to infs in the output.
-        acc += tl.dot(a_tile, b_tile)
+        # TODO (varun) : When a_tile and b_tile are float16s the output is also float16. this can
+        # lead to infs in the output.
+        if SMALL_BLOCK_M:
+            #acc += tl.sum(a_tile * b_tile.T)
+            acc += tl.sum(a_tile * b_tile.T, 1)
+        else:
+            acc += tl.dot(a_tile, b_tile)
 
         a_ptr += BLOCK_K * SPLIT_K * xk_stride
         b_ptr += BLOCK_K * SPLIT_K * lora_k_stride
@@ -107,10 +112,11 @@ def _lora_shrink(
     inputs: torch.Tensor,
     lora_a_weights: torch.Tensor,
     output_tensor: torch.Tensor,
-    token_indices_sorted_by_lora_ids: torch.Tensor,  # inputs.size(0)
-    num_tokens_per_lora: torch.Tensor,  # max-loras
-    lora_token_start_loc: torch.Tensor,  # max-loras
-    lora_ids: torch.Tensor,  # max-loras
+    token_lora_mapping: torch.Tensor,
+    token_indices_sorted_by_lora_ids: torch.Tensor, # inputs.size(0)
+    num_tokens_per_lora: torch.Tensor, # max-loras
+    lora_token_start_loc: torch.Tensor, # max-loras
+    lora_ids: torch.Tensor, # max-loras
     scaling: float,
 ) -> None:
     """
@@ -131,6 +137,11 @@ def _lora_shrink(
         add_inputs (bool, optional): Defaults to False, adds the final lora 
             results to the output.
     """
+
+    M = inputs.size(0) # num tokens
+    if M <= 16:
+        # GemmV is better for smaller batchsizes
+        return bgmv_shrink(inputs, lora_a_weights, output_tensor, token_lora_mapping, scaling)
 
     assert inputs.dtype == lora_a_weights.dtype
     assert inputs.dtype in [torch.float16, torch.bfloat16]
@@ -161,23 +172,31 @@ def _lora_shrink(
     cn_stride = output_tensor.stride(1)
 
     # TODO tuning this config
-    M = inputs.size(0)  # num tokens
     N = lora_a_weights.size(-2)
     K = lora_a_weights.size(-1)
     MAX_LORAS = lora_ids.size(0)
+
+
     BLOCK_M = 32
     BLOCK_N = 16
-    BLOCK_K = 16
-    SPLIT_K = 64
+
+    if M < 128:
+        BLOCK_K = 256
+        SPLIT_K = 64
+    else:
+        BLOCK_K = 32
+        SPLIT_K = 8
+
+    num_warps = 4
     EVEN_K = K % (BLOCK_K * SPLIT_K) == 0
-    NUM_M_CTAS = math.ceil(M / BLOCK_M)  # Each BLOCK_M is its own CTA
-    NUM_N_CTAS = math.ceil(N / BLOCK_N)
+    SMALL_BLOCK_M = BLOCK_M < 16
+    NUM_M_CTAS = triton.cdiv(M, BLOCK_M)
+    NUM_N_CTAS = triton.cdiv(N, BLOCK_N)
 
     grid = (
-        MAX_LORAS * NUM_M_CTAS * NUM_N_CTAS,
-        SPLIT_K,
-    )
-
+            SPLIT_K * NUM_M_CTAS * NUM_N_CTAS,
+            MAX_LORAS,
+        )
     _lora_shrink_kernel[grid](
         inputs,
         lora_a_weights,
@@ -201,8 +220,10 @@ def _lora_shrink(
         BLOCK_K,
         EVEN_K,
         SPLIT_K,
+        SMALL_BLOCK_M,
         NUM_M_CTAS,
         NUM_N_CTAS,
+        num_warps=num_warps,
     )
     return
 
