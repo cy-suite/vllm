@@ -1,6 +1,6 @@
+import vllm.envs as envs
 from vllm.platforms import current_platform
 from vllm.utils import print_info_once
-import vllm.envs as envs
 
 from .punica_base import PunicaWrapperBase
 

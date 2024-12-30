@@ -2,9 +2,9 @@
 import argparse
 import dataclasses
 import json
+import pickle
 import random
 import time
-import pickle
 from functools import cache
 from typing import Dict, List, Optional, Tuple
 
@@ -22,10 +22,10 @@ from vllm.inputs import TextPrompt
 from vllm.lora.request import LoRARequest
 from vllm.lora.utils import get_adapter_absolute_path
 from vllm.multimodal import MultiModalDataDict
+from vllm.outputs import RequestOutput
 from vllm.sampling_params import BeamSearchParams
 from vllm.transformers_utils.tokenizer import AnyTokenizer, get_lora_tokenizer
 from vllm.utils import FlexibleArgumentParser, merge_async_iterators
-from vllm.outputs import RequestOutput
 
 SAMPLING_TEMPERATURE = 0.0
 SAMPLING_TOP_P = 1.0

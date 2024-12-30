@@ -1,5 +1,6 @@
 import tempfile
 from collections import OrderedDict
+from contextlib import contextmanager
 from typing import Dict, List, TypedDict
 from unittest.mock import MagicMock, patch
 
@@ -20,7 +21,6 @@ from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.sampler import Sampler
 from vllm.model_executor.layers.vocab_parallel_embedding import ParallelLMHead
 from vllm.model_executor.model_loader import get_model
-from contextlib import contextmanager
 
 
 class ContextIDInfo(TypedDict):

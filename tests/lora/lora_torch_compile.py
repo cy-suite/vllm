@@ -2,25 +2,21 @@ import random
 from typing import Dict, List, Optional, Tuple
 
 import torch
+from conftest import _dist_init
+from utils import DummyLoRAManager
 
 from vllm.config import LoRAConfig
-# yapf conflicts with isort for this block
-# yapf: disable
-from vllm.lora.layers import (LoRAMapping,
-                             BaseLayerWithLoRA,
-                              VocabParallelEmbeddingWithLoRA)
-# yapf: enable
-from vllm.lora.punica_wrapper import get_punica_wrapper
-
-from vllm.model_executor.layers.vocab_parallel_embedding import (
-    VocabParallelEmbedding)
-
-from vllm.lora.models import (LoRALayerWeights, PackedLoRALayerWeights)
-
-from utils import DummyLoRAManager
 from vllm.distributed.parallel_state import (ensure_model_parallel_initialized,
                                              init_distributed_environment)
-from conftest import _dist_init
+# yapf conflicts with isort for this block
+# yapf: disable
+from vllm.lora.layers import (BaseLayerWithLoRA, LoRAMapping,
+                              VocabParallelEmbeddingWithLoRA)
+from vllm.lora.models import LoRALayerWeights, PackedLoRALayerWeights
+# yapf: enable
+from vllm.lora.punica_wrapper import get_punica_wrapper
+from vllm.model_executor.layers.vocab_parallel_embedding import (
+    VocabParallelEmbedding)
 
 
 def get_random_id_to_index(num_loras: int,

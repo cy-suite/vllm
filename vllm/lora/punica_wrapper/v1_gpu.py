@@ -1,5 +1,5 @@
-from typing import TYPE_CHECKING, Optional, Tuple, Union, final, List
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union, final
 
 import torch
 
@@ -27,7 +27,8 @@ class V1KernelMeta:
     lora_token_start_loc: torch.Tensor
 
     @staticmethod
-    def make(max_loras: int, max_num_tokens: int, device: torch.device) -> "V1KernelMeta":
+    def make(max_loras: int, max_num_tokens: int,
+             device: torch.device) -> "V1KernelMeta":
 
         token_lora_mapping = torch.empty(max_num_tokens,
                                          dtype=torch.int32,
@@ -54,12 +55,13 @@ class V1KernelMeta:
         # can be [0, 3, 13, 18, 20].
         lora_token_start_loc = torch.zeros(max_loras + 2,
                                            dtype=torch.int32,
-                                           device=device) 
-        return V1KernelMeta(token_lora_mapping=token_lora_mapping,
-                            token_indices_sorted_by_lora_ids=token_indices_sorted_by_lora_ids,
-                            active_lora_ids = active_lora_ids,
-                            num_tokens_per_lora=num_tokens_per_lora,
-                            lora_token_start_loc = lora_token_start_loc)
+                                           device=device)
+        return V1KernelMeta(
+            token_lora_mapping=token_lora_mapping,
+            token_indices_sorted_by_lora_ids=token_indices_sorted_by_lora_ids,
+            active_lora_ids=active_lora_ids,
+            num_tokens_per_lora=num_tokens_per_lora,
+            lora_token_start_loc=lora_token_start_loc)
 
     def reset(self):
         self.active_lora_ids.fill_(-1)
@@ -70,7 +72,8 @@ class V1KernelMeta:
         num_tokens = token_lora_mapping.size(0)
 
         # copy token lora mapping
-        self.token_lora_mapping[:num_tokens].copy_(token_lora_mapping, non_blocking=True)
+        self.token_lora_mapping[:num_tokens].copy_(token_lora_mapping,
+                                                   non_blocking=True)
 
         # token_indices_sorted_by_lora_ids
         _, token_indices_sorted_by_lora_ids = torch.sort(token_lora_mapping,
@@ -93,11 +96,13 @@ class V1KernelMeta:
         self.lora_token_start_loc[1:1 + lora_token_start_loc.size(0)].copy_(
             lora_token_start_loc, non_blocking=True)
 
-    def meta_args(self, num_tokens: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def meta_args(
+        self, num_tokens: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
+               torch.Tensor]:
         return (self.token_lora_mapping[:num_tokens],
                 self.token_indices_sorted_by_lora_ids[:num_tokens],
-                self.num_tokens_per_lora,
-                self.lora_token_start_loc,
+                self.num_tokens_per_lora, self.lora_token_start_loc,
                 self.active_lora_ids)
 
 

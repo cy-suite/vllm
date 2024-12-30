@@ -13,12 +13,10 @@ from vllm.lora.ops.bgmv_shrink import bgmv_shrink
 from vllm.lora.ops.sgmv_expand import sgmv_expand
 from vllm.lora.ops.sgmv_expand_slice import sgmv_expand_slice
 from vllm.lora.ops.sgmv_shrink import sgmv_shrink
-
 from vllm.lora.ops.v1.lora_expand import lora_expand
-from vllm.lora.ops.v1.lora_shrink import lora_shrink
 from vllm.lora.ops.v1.lora_expand_slice import lora_expand_slice
+from vllm.lora.ops.v1.lora_shrink import lora_shrink
 from vllm.lora.punica_wrapper.v1_gpu import V1KernelMeta
-
 from vllm.platforms import current_platform
 
 from .utils import (generate_data, generate_data_for_expand_nslices,
