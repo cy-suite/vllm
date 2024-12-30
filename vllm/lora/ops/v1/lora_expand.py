@@ -219,6 +219,7 @@ def lora_expand_fake(
     inputs: torch.Tensor,
     lora_b_weights: torch.Tensor,
     output_tensor: torch.Tensor,
+    token_lora_mapping: torch.Tensor,
     token_indices_sorted_by_lora_ids: torch.Tensor,
     num_tokens_per_lora: torch.Tensor,
     lora_token_start_loc: torch.Tensor,
