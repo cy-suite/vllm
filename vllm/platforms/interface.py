@@ -112,9 +112,11 @@ class Platform:
         return self._enum in (PlatformEnum.CUDA, PlatformEnum.ROCM)
 
     @classmethod
-    def get_default_attn_backend(cls, selected_backend: _Backend):
-        """Get the default attention backend of a device."""
-        return None
+    def get_attn_backend_cls(cls, selected_backend: _Backend, head_size: int,
+                             dtype: torch.dtype, kv_cache_dtype: Optional[str],
+                             block_size: int, use_v1: bool) -> str:
+        """Get the attention backend class of a device."""
+        return ""
 
     @classmethod
     def get_device_capability(
@@ -196,6 +198,18 @@ class Platform:
         compatible with the current platform.
 
         The config is passed by reference, so it can be modified in place.
+        """
+        pass
+
+    @classmethod
+    def verify_model_arch(cls, model_arch: str) -> None:
+        """
+        Verify whether the current platform supports the specified model
+        architecture.
+
+        - This will raise an Error or Warning based on the model support on
+        the current platform.
+        - By default all models are considered supported.
         """
         pass
 
