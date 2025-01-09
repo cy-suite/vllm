@@ -23,32 +23,20 @@ import torch
 
 import vllm.envs as envs
 from vllm import _custom_ops as ops
-from vllm.attention.backends.abstract import (
-    AttentionBackend,
-    AttentionImpl,
-    AttentionMetadata,
-    AttentionMetadataBuilder,
-    AttentionState,
-    AttentionType,
-)
-from vllm.attention.backends.utils import (
-    PAD_SLOT_ID,
-    compute_slot_mapping,
-    compute_slot_mapping_start_idx,
-    is_block_tables_empty,
-)
+from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
+                                              AttentionMetadata,
+                                              AttentionMetadataBuilder,
+                                              AttentionState, AttentionType)
+from vllm.attention.backends.utils import (PAD_SLOT_ID, compute_slot_mapping,
+                                           compute_slot_mapping_start_idx,
+                                           is_block_tables_empty)
 from vllm.attention.ops.paged_attn import PagedAttention
-from vllm.utils import (
-    async_tensor_h2d,
-    get_kv_cache_torch_dtype,
-    make_tensor_with_pad,
-)
+from vllm.utils import (async_tensor_h2d, get_kv_cache_torch_dtype,
+                        make_tensor_with_pad)
 
 if TYPE_CHECKING:
-    from vllm.worker.model_runner import (
-        ModelInputForGPUBuilder,
-        ModelInputForGPUWithSamplingMetadata,
-    )
+    from vllm.worker.model_runner import (ModelInputForGPUBuilder,
+                                          ModelInputForGPUWithSamplingMetadata)
 
 
 class FlashInferBackend(AttentionBackend):
