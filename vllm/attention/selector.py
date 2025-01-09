@@ -125,6 +125,10 @@ def _cached_get_attn_backend(
         from vllm.v1.attention.backends.flash_attn import (  # noqa: F401
             FlashAttentionBackend as FlashAttentionBackendV1)
         return FlashAttentionBackendV1
+    if backend == _Backend.DUAL_CHUNK_FLASH_ATTN:
+        from vllm.attention.backends.dual_chunk_flash_attn import (  # noqa: F401
+            DualChunkFlashAttentionBackend)
+        return DualChunkFlashAttentionBackend
     if backend == _Backend.XFORMERS:
         logger.info("Using XFormers backend.")
         from vllm.attention.backends.xformers import (  # noqa: F401
