@@ -180,7 +180,7 @@ class DefaultModelLoader(BaseModelLoader):
         """Whether .pt weights can be used."""
 
         allow_patterns_overrides: Optional[list[str]] = None
-        """If defined, weights will load exclusively from files matching this pattern."""
+        """If defined, weights will load exclusively using these patterns."""
 
     def __init__(self, load_config: LoadConfig):
         super().__init__(load_config)
