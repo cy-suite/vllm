@@ -610,6 +610,13 @@ See [this page](#generative-models) for more information on how to use generativ
   -
   - ✅︎
   - ✅︎
+* - `DeepseekVLV2ForCausalLM`
+  - DeepSeek-VL2
+  - T + I
+  - `deepseek-ai/deepseek-vl2-tiny`(WIP), `deepseek-ai/deepseek-vl2-small`, `deepseek-ai/deepseek-vl2` etc. (see note)
+  -
+  - ✅︎
+  - ✅︎
 * - `FuyuForCausalLM`
   - Fuyu
   - T + I
@@ -756,7 +763,11 @@ See [this page](#generative-models) for more information on how to use generativ
 <sup>+</sup> Multiple items can be inputted per text prompt for this modality.
 
 ```{note}
-To use `TIGER-Lab/Mantis-8B-siglip-llama3`, you have pass `--hf_overrides '{"architectures": ["MantisForConditionalGeneration"]}'` when running vLLM.
+To use `DeepSeek-VL2` models, you have to pass `--hf_overrides '{"architectures": ["DeepseekVLV2ForCausalLM"]}'` when running vLLM.
+```
+
+```{note}
+To use `TIGER-Lab/Mantis-8B-siglip-llama3`, you have to pass `--hf_overrides '{"architectures": ["MantisForConditionalGeneration"]}'` when running vLLM.
 ```
 
 ```{note}
