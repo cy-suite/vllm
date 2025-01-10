@@ -109,8 +109,10 @@ class Fairseq2LlamaForCausalLM(LlamaForCausalLM):
             loaded_weight = permute(loaded_weight,
                                     self.config.num_attention_heads)
 
-        # we then make the loaded weights compatible with both
-        # full checkpoints and tp sharded checkpoints
+        # We make the loaded weights compatible with both
+        # full checkpoints and tp sharded checkpoints.
+        # Embeddings are repeated to fit the vocab size.
+        # Other weights have their 'narrow' method monkey-patched.
         if any(emb in modules for emb in ["embed", "final_proj"]):
             # Embeddings are sharded on dim 0
             dim = 0
@@ -123,7 +125,7 @@ class Fairseq2LlamaForCausalLM(LlamaForCausalLM):
                 # repeat to match vocab size and to be easily 'narrow'able
                 loaded_weight = loaded_weight.repeat(repeats)
         else:
-            # Override the 'narrow' method to be conditional on tp_size:
+            # Monkey-patch the 'narrow' method to be conditional on tp_size:
             # if the checkpoint is already tp-sharded, we don't need to
             # narrow weights in weight_loader calls
             def maybe_narrow(self, dim: int, start: int, length: int):
