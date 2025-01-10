@@ -4,11 +4,14 @@ from http import HTTPStatus
 from typing import Any
 
 import uvicorn
+import zmq
+import zmq.asyncio
 from fastapi import FastAPI, Request, Response
 
 from vllm import envs
 from vllm.engine.async_llm_engine import AsyncEngineDeadError
 from vllm.engine.multiprocessing import MQEngineDeadError
+from vllm.entrypoints.openai.connect_worker import worker_routine
 from vllm.logger import init_logger
 from vllm.utils import find_process_using_port
 
@@ -56,6 +59,43 @@ async def serve_http(app: FastAPI, **uvicorn_kwargs: Any):
                 port, process, " ".join(process.cmdline()))
         logger.info("Shutting down FastAPI HTTP server.")
         return server.shutdown()
+
+
+async def serve_zmq(arg, zmq_server_port: int, app: FastAPI) -> None:
+    """Server routine"""
+    logger.info("zmq Server start arg: %s, zmq_server_port: %d", arg,
+                zmq_server_port)
+    url_worker = "inproc://workers"
+    url_client = f"tcp://0.0.0.0:{zmq_server_port}"
+    # Prepare our context and sockets
+    context = zmq.asyncio.Context()
+
+    # Socket to talk to clients
+    clients = context.socket(zmq.ROUTER)
+    clients.bind(url_client)
+    logger.info("ZMQ Server ROUTER started at %s", url_client)
+    # Socket to talk to workers
+    workers = context.socket(zmq.DEALER)
+    workers.bind(url_worker)
+    logger.info("ZMQ Worker DEALER started at %s", url_worker)
+
+    tasks = [
+        asyncio.create_task(worker_routine(url_worker, app, context, i))
+        for i in range(5)
+    ]
+    proxy_task = asyncio.to_thread(zmq.proxy, clients, workers)
+
+    try:
+        await asyncio.gather(*tasks, proxy_task)
+    except KeyboardInterrupt:
+        print("ZMQ Server interrupted")
+    except zmq.ZMQError as e:
+        print("ZMQError:", e)
+    finally:
+        # We never get here but clean up anyhow
+        clients.close()
+        workers.close()
+        context.destroy(linger=0)
 
 
 def _add_shutdown_handlers(app: FastAPI, server: uvicorn.Server) -> None:
